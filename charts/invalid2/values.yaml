@@ -1,0 +1,4 @@
+app:
+  name: test-app
+service:
+  port: 8080
