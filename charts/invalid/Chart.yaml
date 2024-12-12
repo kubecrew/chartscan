@@ -1,4 +1,1 @@
 apiVersion: v2
-name: invalid
-description: Another dummy Helm chart for testing
-version: 0.1.0
