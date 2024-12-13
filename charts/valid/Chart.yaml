@@ -2,3 +2,7 @@ apiVersion: v2
 name: valid
 description: Another dummy Helm chart for testing
 version: 0.1.0
+dependencies:
+  - name: mariadb
+    repository: https://charts.bitnami.com/bitnami
+    version: 20.2.0

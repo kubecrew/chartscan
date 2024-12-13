@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-
-	"gopkg.in/yaml.v3"
+	"time"
 
 	"github.com/Jaydee94/chartscan/internal/finder"
 	"github.com/Jaydee94/chartscan/internal/models"
 	"github.com/Jaydee94/chartscan/internal/renderer"
+	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -42,8 +43,13 @@ func main() {
 				os.Exit(1)
 			}
 
+			s := spinner.New(spinner.CharSets[9], 100*time.Millisecond) // Use a spinner style
+			s.Start()
+			defer s.Stop()
+
 			var scanResults []models.Result
 			for _, chartDir := range chartDirs {
+				s.Suffix = fmt.Sprintf(" Scanning chart: %s", chartDirs) // Update the suffix with the current chart
 				success, errors, values, undefinedValues := renderer.RenderHelmChart(chartDir, valuesFiles)
 				scanResults = append(scanResults, models.Result{
 					ChartPath:       chartDir,
@@ -53,6 +59,8 @@ func main() {
 					UndefinedValues: undefinedValues,
 				})
 			}
+
+			s.Stop() // Stop the spinner before printing results
 
 			switch format {
 			case "pretty":
