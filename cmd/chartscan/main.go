@@ -43,13 +43,13 @@ func main() {
 				os.Exit(1)
 			}
 
-			s := spinner.New(spinner.CharSets[9], 100*time.Millisecond) // Use a spinner style
+			s := spinner.New(spinner.CharSets[4], 100*time.Millisecond) // Use a spinner style
 			s.Start()
 			defer s.Stop()
 
 			var scanResults []models.Result
 			for _, chartDir := range chartDirs {
-				s.Suffix = fmt.Sprintf(" Scanning chart: %s", chartDirs) // Update the suffix with the current chart
+				s.Suffix = fmt.Sprintf(" Scanning charts: %s", chartDirs) // Update the suffix with the current chart
 				success, errors, values, undefinedValues := renderer.RenderHelmChart(chartDir, valuesFiles)
 				scanResults = append(scanResults, models.Result{
 					ChartPath:       chartDir,
