@@ -12,8 +12,7 @@ jobs:
       matrix:
         go-version: [1.22]
         architecture: [amd64, arm64, 386]
-        os: [linux, windows]  # Add 'windows' to the matrix to build for Windows
-
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -36,18 +35,14 @@ jobs:
         
       - name: Build chartscan Binary
         run: |
-          if [ "${{ matrix.os }}" == "windows" ]; then
-            GOARCH=${{ matrix.architecture }} GOOS=${{ matrix.os }} go build -o chartscan-${{ matrix.os }}-${{ matrix.architecture }}.exe ./cmd/chartscan
-          else
-            GOARCH=${{ matrix.architecture }} GOOS=${{ matrix.os }} go build -o chartscan-${{ matrix.os }}-${{ matrix.architecture }} ./cmd/chartscan
-          fi
+          GOARCH=${{ matrix.architecture }} GOOS=linux go build -o chartscan-${{ matrix.architecture }} ./cmd/chartscan
         
       - name: Upload Binaries as Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chartscan-${{ matrix.os }}-${{ matrix.architecture }}
-          path: chartscan-${{ matrix.os }}-${{ matrix.architecture }}${{ matrix.os == 'windows' && '-amd64.exe' || '' }}
-
+          name: chartscan-${{ matrix.architecture }}
+          path: chartscan-${{ matrix.architecture }}
+          
   release:
     runs-on: ubuntu-latest
     needs: build
@@ -58,30 +53,24 @@ jobs:
       - name: Download Binaries from Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: chartscan-linux-amd64
+          name: chartscan-amd64  # Downloads the artifact for amd64
           
       - name: Download Binaries from Artifacts (ARM64)
         uses: actions/download-artifact@v4
         with:
-          name: chartscan-linux-arm64
+          name: chartscan-arm64  # Downloads the artifact for arm64
           
       - name: Download Binaries from Artifacts (386)
         uses: actions/download-artifact@v4
         with:
-          name: chartscan-linux-386
+          name: chartscan-386  # Downloads the artifact for 386
 
-      - name: Download Binaries from Artifacts (Windows)
-        uses: actions/download-artifact@v4
-        with:
-          name: chartscan-windows-amd64.exe
-          
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            chartscan-linux-amd64
-            chartscan-linux-arm64
-            chartscan-linux-386
-            chartscan-windows-amd64.exe  # Include the Windows binary with .exe extension
+            chartscan-amd64
+            chartscan-arm64
+            chartscan-386
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
