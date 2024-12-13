@@ -44,11 +44,13 @@ func main() {
 
 			var scanResults []models.Result
 			for _, chartDir := range chartDirs {
-				success, errors := renderer.RenderHelmChart(chartDir, valuesFiles)
+				success, errors, values, undefinedValues := renderer.RenderHelmChart(chartDir, valuesFiles)
 				scanResults = append(scanResults, models.Result{
-					ChartPath: chartDir,
-					Success:   success,
-					Errors:    errors,
+					ChartPath:       chartDir,
+					Success:         success,
+					Errors:          errors,
+					Values:          values,
+					UndefinedValues: undefinedValues,
 				})
 			}
 
@@ -70,18 +72,17 @@ func main() {
 				}
 				fmt.Println(string(output))
 			default:
-				fmt.Fprintf(os.Stderr, "Invalid output format: %s\n", format)
-				cmd.Help()
+				fmt.Fprintf(os.Stderr, "Unknown output format: %s\n", format)
 				os.Exit(1)
 			}
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&format, "output", "o", "pretty", "Output format (json|yaml|pretty)")
-	rootCmd.Flags().StringSliceP("values", "f", []string{}, "Specify one or more Helm values files to use during the linting process.")
+	rootCmd.Flags().StringSliceP("values", "f", []string{}, "values files to use for rendering")
+	rootCmd.Flags().StringVarP(&format, "format", "o", "pretty", "output format (pretty, json, yaml)")
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
 		os.Exit(1)
 	}
 }

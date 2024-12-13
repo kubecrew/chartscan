@@ -6,4 +6,3 @@ metadata:
     app: valid
 spec:
   replicas: {{ .Values.replicas }}
-  test: {{ .Values.test }}
