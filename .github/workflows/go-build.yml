@@ -40,7 +40,7 @@ jobs:
       - name: Upload Binaries as Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chartscan-binaries-${{ matrix.architecture }}
+          name: chartscan-${{ matrix.architecture }}
           path: chartscan-${{ matrix.architecture }}
           
   release:
