@@ -35,7 +35,8 @@ jobs:
         
       - name: Build chartscan Binary
         run: |
-          GOARCH=${{ matrix.architecture }} GOOS=linux go build -o chartscan-${{ matrix.architecture }} ./cmd/chartscan
+          VERSION=$(git describe --tags --always)
+          GOARCH=${{ matrix.architecture }} GOOS=linux go build -ldflags "-X main.version=$VERSION" -o chartscan-${{ matrix.architecture }} ./cmd/chartscan
         
       - name: Upload Binaries as Artifacts
         uses: actions/upload-artifact@v4

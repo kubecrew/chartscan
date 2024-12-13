@@ -61,10 +61,13 @@ type Property struct {
 	Value string `xml:"value,attr"`
 }
 
+var version = "dev"
+
 func main() {
 	var configFile, format string
 	var valuesFiles []string
 
+	// Root command
 	rootCmd := &cobra.Command{
 		Use:   "chartscan [chart-path]",
 		Short: "ChartScan is a tool to scan Helm charts",
@@ -114,11 +117,25 @@ func main() {
 		},
 	}
 
+	// Version command
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print the version of ChartScan",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("ChartScan version %s\n", version)
+		},
+	}
+
+	// Add the version command to the root command
+	rootCmd.AddCommand(versionCmd)
+
+	// Root command flags
 	flags := rootCmd.Flags()
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
 	flags.StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
 	flags.StringVarP(&format, "format", "o", "pretty", "Output format (pretty, json, yaml, gitlab)")
 
+	// Execute the root command
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
