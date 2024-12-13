@@ -20,10 +20,10 @@ import (
 type Config struct {
 	ChartPath   string   `yaml:"chartPath"`   // Base path to search for Helm charts
 	ValuesFiles []string `yaml:"valuesFiles"` // List of values files to use during rendering
-	Format      string   `yaml:"format"`      // Output format: pretty, json, yaml, gitlab
+	Format      string   `yaml:"format"`      // Output format: pretty, json, yaml, junit
 }
 
-// TestSuite represents a JUnit-style test suite for GitLab reports
+// TestSuite represents a JUnit-style test suite for test reports
 type TestSuite struct {
 	XMLName    xml.Name   `xml:"testsuite"`
 	Name       string     `xml:"name,attr"`
@@ -69,8 +69,14 @@ func main() {
 
 	// Root command
 	rootCmd := &cobra.Command{
-		Use:   "chartscan [chart-path]",
+		Use:   "chartscan",
 		Short: "ChartScan is a tool to scan Helm charts",
+	}
+
+	// Scan subcommand
+	scanCmd := &cobra.Command{
+		Use:   "scan [chart-path]",
+		Short: "Scan Helm charts for potential issues",
 		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			config, err := loadConfig(configFile, valuesFiles, format, args)
@@ -95,8 +101,8 @@ func main() {
 				output, err = json.MarshalIndent(results, "", "  ")
 			case "yaml":
 				output, err = yaml.Marshal(results)
-			case "gitlab":
-				err = printGitLabUnitTestReport(results)
+			case "junit":
+				err = printJUnitTestReport(results)
 			default:
 				fmt.Fprintf(os.Stderr, "Unknown output format: %s\n", config.Format)
 				os.Exit(1)
@@ -117,7 +123,12 @@ func main() {
 		},
 	}
 
-	// Version command
+	// Add flags to the scan subcommand
+	scanCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
+	scanCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
+	scanCmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
+
+	// Version subcommand
 	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the version of ChartScan",
@@ -126,14 +137,9 @@ func main() {
 		},
 	}
 
-	// Add the version command to the root command
+	// Add subcommands to the root command
+	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(versionCmd)
-
-	// Root command flags
-	flags := rootCmd.Flags()
-	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
-	flags.StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
-	flags.StringVarP(&format, "format", "o", "pretty", "Output format (pretty, json, yaml, gitlab)")
 
 	// Execute the root command
 	if err := rootCmd.Execute(); err != nil {
@@ -142,8 +148,8 @@ func main() {
 	}
 }
 
-// printGitLabUnitTestReport generates a GitLab-compatible unit test report
-func printGitLabUnitTestReport(results []models.Result) error {
+// printJUnitTestReport generates a JUnit-compatible unit test report
+func printJUnitTestReport(results []models.Result) error {
 	var testCases []TestCase
 	failures := 0
 

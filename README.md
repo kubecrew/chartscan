@@ -8,7 +8,7 @@
 
 - Scans directories for Helm charts.
 - Supports multiple values files for rendering charts.
-- Configurable output formats: **pretty**, **JSON**, or **YAML**.
+- Configurable output formats: **pretty**, **JSON**, **JUnit**, or **YAML**.
 - Supports configuration through YAML-based config files.
 
 ---
@@ -30,6 +30,7 @@ To download the latest release:
 
    ```bash
    mv chartscan-[architecture] /usr/local/bin/chartscan
+   ```
 
 ---
 
@@ -43,28 +44,40 @@ Ensure the following dependencies are installed:
 
 ## Usage
 
-### Basic Command
+### Commands
+
+#### Scan Command
+
+The `scan` command is used to analyze Helm charts for potential issues:
 
 ```bash
-chartscan [chart-path]
+chartscan scan [chart-path]
 ```
 
-### Options
+#### Version Command
+
+The `version` command displays the current version of ChartScan:
+
+```bash
+chartscan version
+```
+
+### Options for `scan`
 
 - `-f, --values`: Specify values files to use for rendering.
-- `-o, --format`: Set the output format (pretty, json, yaml). Default is `pretty`.
+- `-o, --format`: Set the output format (pretty, json, yaml, junit). Default is `pretty`.
 - `-c, --config`: Provide a configuration file (YAML format) to override CLI flags.
 
-### Example
+### Examples
 
 #### Scan a Chart Directory with Values Files:
 ```bash
-chartscan ./charts -f values.yaml -o json
+chartscan scan ./charts -f values.yaml -o json
 ```
 
 #### Use a Config File:
 ```bash
-chartscan -c config.yaml
+chartscan scan -c config.yaml
 ```
 
 #### Example Config File:
@@ -82,6 +95,7 @@ format: yaml
 - **Pretty**: Human-readable formatted output.
 - **JSON**: Machine-readable JSON format.
 - **YAML**: YAML-encoded output for further processing.
+- **JUnit**: JUnit-compatible XML format for test reports.
 
 ---
 
@@ -99,7 +113,7 @@ format: yaml
 3. Run the tool:
 
    ```bash
-   go run main.go [options]
+   go run main.go [command] [options]
    ```
 
 ### Testing
@@ -121,3 +135,4 @@ Contributions are welcome! Please follow these steps:
 3. Commit your changes (`git commit -m "Add feature"`).
 4. Push to the branch (`git push origin feature-name`).
 5. Open a pull request.
+
