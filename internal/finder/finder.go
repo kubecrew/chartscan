@@ -7,13 +7,14 @@ import (
 
 func FindHelmChartDirs(root string) ([]string, error) {
 	var chartDirs []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 		if info.IsDir() {
-			chartPath := filepath.Join(path, "Chart.yaml")
-			if _, err := os.Stat(chartPath); err == nil {
+			chartYamlPath := filepath.Join(path, "Chart.yaml")
+			stat, err := os.Stat(chartYamlPath)
+			if err == nil && stat.Mode().IsRegular() {
 				chartDirs = append(chartDirs, path)
 			}
 		}

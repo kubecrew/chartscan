@@ -62,9 +62,8 @@ type Property struct {
 }
 
 func main() {
-	var configFile string
+	var configFile, format string
 	var valuesFiles []string
-	var format string
 
 	rootCmd := &cobra.Command{
 		Use:   "chartscan [chart-path]",
@@ -85,32 +84,28 @@ func main() {
 
 			results, invalidCharts := processCharts(chartDirs, config)
 
+			var output []byte
 			switch config.Format {
 			case "pretty":
 				renderer.PrintResultsPretty(results)
 			case "json":
-				output, err := json.MarshalIndent(results, "", "  ")
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error marshaling results to JSON: %v\n", err)
-					os.Exit(1)
-				}
-				fmt.Println(string(output))
+				output, err = json.MarshalIndent(results, "", "  ")
 			case "yaml":
-				output, err := yaml.Marshal(results)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error marshaling results to YAML: %v\n", err)
-					os.Exit(1)
-				}
-				fmt.Println(string(output))
+				output, err = yaml.Marshal(results)
 			case "gitlab":
-				err := printGitLabUnitTestReport(results)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error generating GitLab unit test report: %v\n", err)
-					os.Exit(1)
-				}
+				err = printGitLabUnitTestReport(results)
 			default:
 				fmt.Fprintf(os.Stderr, "Unknown output format: %s\n", config.Format)
 				os.Exit(1)
+			}
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error processing results: %v\n", err)
+				os.Exit(1)
+			}
+
+			if output != nil {
+				fmt.Println(string(output))
 			}
 
 			if invalidCharts > 0 {
@@ -119,9 +114,10 @@ func main() {
 		},
 	}
 
+	flags := rootCmd.Flags()
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
-	rootCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
-	rootCmd.Flags().StringVarP(&format, "format", "o", "pretty", "Output format (pretty, json, yaml, gitlab)")
+	flags.StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
+	flags.StringVarP(&format, "format", "o", "pretty", "Output format (pretty, json, yaml, gitlab)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -131,10 +127,8 @@ func main() {
 
 // printGitLabUnitTestReport generates a GitLab-compatible unit test report
 func printGitLabUnitTestReport(results []models.Result) error {
-	suite := TestSuite{
-		Name:  "Helm Chart Scan",
-		Tests: len(results),
-	}
+	var testCases []TestCase
+	failures := 0
 
 	for _, result := range results {
 		testCase := TestCase{
@@ -149,16 +143,21 @@ func printGitLabUnitTestReport(results []models.Result) error {
 				Type:    "RenderingError",
 				Content: fmt.Sprintf("Errors: %v\nUndefined Values: %v", result.Errors, result.UndefinedValues),
 			}
+			failures++
 		} else {
 			testCase.SystemOut = &SystemOut{
 				Content: fmt.Sprintf("Chart %v rendered successfully", result.ChartPath),
 			}
 		}
 
-		if !result.Success {
-			suite.Failures++
-		}
-		suite.TestCases = append(suite.TestCases, testCase)
+		testCases = append(testCases, testCase)
+	}
+
+	suite := TestSuite{
+		Name:      "Helm Chart Scan",
+		Tests:     len(results),
+		Failures:  failures,
+		TestCases: testCases,
 	}
 
 	output, err := xml.MarshalIndent(suite, "", "  ")
@@ -172,18 +171,16 @@ func printGitLabUnitTestReport(results []models.Result) error {
 
 // loadConfig dynamically loads the configuration from a file and/or CLI arguments
 func loadConfig(configFile string, valuesFiles []string, format string, args []string) (Config, error) {
-	var config Config
+	config := Config{}
 
 	// Load from configuration file if specified
 	if configFile != "" {
-		file, err := os.Open(configFile)
+		data, err := os.ReadFile(configFile)
 		if err != nil {
-			return config, fmt.Errorf("error opening config file: %v", err)
+			return config, fmt.Errorf("error reading config file: %v", err)
 		}
-		defer file.Close()
 
-		decoder := yaml.NewDecoder(file)
-		if err := decoder.Decode(&config); err != nil {
+		if err := yaml.Unmarshal(data, &config); err != nil {
 			return config, fmt.Errorf("error decoding config file: %v", err)
 		}
 	}
