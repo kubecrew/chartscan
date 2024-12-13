@@ -9,8 +9,8 @@ type Result struct {
 }
 
 type ValueReference struct {
-	Name     string
-	File     string
-	Line     int
-	FullText string
+	Name     string `json:"Name"`
+	File     string `json:"File"`
+	Line     int    `json:"Line"`
+	FullText string `json:"FullText"`
 }
