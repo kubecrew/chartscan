@@ -139,14 +139,20 @@ func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string, ma
 		return false, []string{fmt.Sprintf("Error reading Chart.yaml: %v", err)}, nil, nil
 	}
 	if hasDependencies {
-		dependencyCmd := exec.Command("helm", "dependency", "update", chartPath)
-		var dependencyStderr bytes.Buffer
-		dependencyCmd.Stderr = &dependencyStderr
-		dependencyCmd.Stdout = &bytes.Buffer{}
+		if cacheDir, err := os.MkdirTemp("", "chartscan"); err != nil {
+			return false, []string{fmt.Sprintf("Error creating temp cache dir: %v", err)}, nil, nil
+		} else {
+			defer os.RemoveAll(cacheDir)
+			dependencyCmd := exec.Command("helm", "dependency", "update", "--repository-cache", cacheDir, chartPath)
+			var dependencyStderr bytes.Buffer
+			dependencyCmd.Stderr = &dependencyStderr
+			dependencyCmd.Stdout = &bytes.Buffer{}
 
-		if err := dependencyCmd.Run(); err != nil {
-			return false, []string{fmt.Sprintf("Error updating dependencies: %v\n%s", err, dependencyStderr.String())}, nil, nil
+			if err := dependencyCmd.Run(); err != nil {
+				return false, []string{fmt.Sprintf("Error updating dependencies: %v\n%s", err, dependencyStderr.String())}, nil, nil
+			}
 		}
+
 
 		// Cleanup fetched Helm dependencies
 		chartsDir := filepath.Join(chartPath, "charts")
