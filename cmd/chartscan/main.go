@@ -64,8 +64,12 @@ type Property struct {
 var version = "dev"
 
 func main() {
-	var configFile, format string
+	// configFile stores the path to the configuration file
+	var configFile string
+	// valuesFiles stores the list of values files to use during rendering
 	var valuesFiles []string
+	// format stores the desired output format
+	var format string
 
 	// Root command
 	rootCmd := &cobra.Command{
@@ -79,29 +83,37 @@ func main() {
 		Short: "Scan Helm charts for potential issues",
 		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			// Load the configuration from the configuration file and/or CLI arguments
 			config, err := loadConfig(configFile, valuesFiles, format, args)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				os.Exit(1)
 			}
 
+			// Find the Helm charts to scan
 			chartDirs, err := finder.FindHelmChartDirs(config.ChartPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error finding Helm charts: %v\n", err)
 				os.Exit(1)
 			}
 
+			// Process the Helm charts
 			results, invalidCharts := processCharts(chartDirs, config)
 
 			var output []byte
+			// Output the results in the desired format
 			switch config.Format {
 			case "pretty":
+				// Print the results in a pretty format
 				renderer.PrintResultsPretty(results)
 			case "json":
+				// Marshal the results to JSON
 				output, err = json.MarshalIndent(results, "", "  ")
 			case "yaml":
+				// Marshal the results to YAML
 				output, err = yaml.Marshal(results)
 			case "junit":
+				// Print JUnit test report
 				err = printJUnitTestReport(results)
 			default:
 				fmt.Fprintf(os.Stderr, "Unknown output format: %s\n", config.Format)
@@ -114,9 +126,11 @@ func main() {
 			}
 
 			if output != nil {
+				// Print the output
 				fmt.Println(string(output))
 			}
 
+			// Exit with a non-zero status if there are invalid charts
 			if invalidCharts > 0 {
 				os.Exit(1)
 			}
@@ -149,6 +163,10 @@ func main() {
 }
 
 // printJUnitTestReport generates a JUnit-compatible unit test report
+// from the given results.
+//
+// The report will contain one test case per chart, with a failure
+// if the chart did not render successfully.
 func printJUnitTestReport(results []models.Result) error {
 	var testCases []TestCase
 	failures := 0
@@ -193,6 +211,9 @@ func printJUnitTestReport(results []models.Result) error {
 }
 
 // loadConfig dynamically loads the configuration from a file and/or CLI arguments
+//
+// The configuration is loaded from the given file (if specified) and/or
+// overridden with the given CLI arguments and default values.
 func loadConfig(configFile string, valuesFiles []string, format string, args []string) (Config, error) {
 	config := Config{}
 
@@ -203,6 +224,7 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 			return config, fmt.Errorf("error reading config file: %v", err)
 		}
 
+		// Unmarshal the configuration from the file
 		if err := yaml.Unmarshal(data, &config); err != nil {
 			return config, fmt.Errorf("error decoding config file: %v", err)
 		}
@@ -210,25 +232,34 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 
 	// Override with CLI arguments and defaults
 	if len(args) > 0 {
+		// Use the first command-line argument as the chart path
 		config.ChartPath = args[0]
 	} else if config.ChartPath == "" {
-		config.ChartPath = "./charts" // Default path
+		// Default chart path
+		config.ChartPath = "./charts"
 	}
 
 	if len(valuesFiles) > 0 {
+		// Use the values files specified on the command line
 		config.ValuesFiles = valuesFiles
 	}
 
 	if format != "" {
+		// Use the output format specified on the command line
 		config.Format = format
 	} else if config.Format == "" {
-		config.Format = "pretty" // Default format
+		// Default output format
+		config.Format = "pretty"
 	}
 
 	return config, nil
 }
 
 // processCharts scans and processes all chart directories concurrently
+//
+// This function takes a list of chart directories and a configuration object, and
+// scans and processes all the charts concurrently. It returns a slice of results
+// and the number of invalid charts.
 func processCharts(chartDirs []string, config Config) ([]models.Result, int) {
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
@@ -236,25 +267,30 @@ func processCharts(chartDirs []string, config Config) ([]models.Result, int) {
 	results := []models.Result{}
 	invalidCharts := 0
 
+	// Create a spinner to indicate progress
 	s := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
 	s.Start()
 	defer s.Stop()
 
+	// Add a wait group entry for each chart to be processed
 	wg.Add(len(chartDirs))
 	for _, chartDir := range chartDirs {
 		go func(chartDir string) {
 			defer wg.Done()
 
-			s.Suffix = fmt.Sprintf(" Scanning charts: %s", chartDirs)
+			// Update the spinner with a suffix indicating the chart being scanned
+			s.Suffix = fmt.Sprintf(" Scanning charts: %s", chartDir)
 			success, errors, values, undefinedValues := renderer.RenderHelmChart(chartDir, config.ValuesFiles)
 
 			// Protect shared variables with a mutex
 			mutex.Lock()
 			defer mutex.Unlock()
 
+			// Increment the invalid chart count if the chart is invalid
 			if !success {
 				invalidCharts++
 			}
+			// Append the result to the slice of results
 			results = append(results, models.Result{
 				ChartPath:       chartDir,
 				Success:         success,
@@ -265,7 +301,10 @@ func processCharts(chartDirs []string, config Config) ([]models.Result, int) {
 		}(chartDir)
 	}
 
+	// Wait for all the goroutines to finish
 	wg.Wait()
+	// Stop the spinner
 	s.Stop()
+	// Return the slice of results and the number of invalid charts
 	return results, invalidCharts
 }
