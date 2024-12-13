@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
@@ -451,7 +452,7 @@ func colorize(s string, color string) string {
 // PrintResultsPretty prints the results of a Helm chart scan in a pretty table format.
 // It takes a slice of models.Result objects as input and prints the chart path, success status,
 // and any error messages for each chart.
-func PrintResultsPretty(results []models.Result) {
+func PrintResultsPretty(results []models.Result, duration time.Duration) {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Chart Path", "Success", "Details"})
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
@@ -501,6 +502,7 @@ func PrintResultsPretty(results []models.Result) {
 	summaryTable.AppendBulk([][]string{
 		{"Valid Charts", colorize(strconv.Itoa(validCharts), "green")},
 		{"Invalid Charts", colorize(strconv.Itoa(invalidCharts), "red")},
+		{"Scan Duration", colorize(duration.String(), "blue")},
 	})
 	summaryTable.Render()
 }

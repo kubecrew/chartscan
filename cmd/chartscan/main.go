@@ -90,6 +90,8 @@ func main() {
 				os.Exit(1)
 			}
 
+			startTime := time.Now()
+
 			// Find the Helm charts to scan
 			chartDirs, err := finder.FindHelmChartDirs(config.ChartPath)
 			if err != nil {
@@ -100,12 +102,14 @@ func main() {
 			// Process the Helm charts
 			results, invalidCharts := processCharts(chartDirs, config)
 
+			duration := time.Since(startTime)
+
 			var output []byte
 			// Output the results in the desired format
 			switch config.Format {
 			case "pretty":
 				// Print the results in a pretty format
-				renderer.PrintResultsPretty(results)
+				renderer.PrintResultsPretty(results, duration)
 			case "json":
 				// Marshal the results to JSON
 				output, err = json.MarshalIndent(results, "", "  ")
