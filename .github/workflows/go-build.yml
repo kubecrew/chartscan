@@ -15,15 +15,15 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: Set up Go ${{ matrix.go-version }}
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
           
       - name: Cache Go Modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.mod') }}
@@ -38,7 +38,7 @@ jobs:
           GOARCH=${{ matrix.architecture }} GOOS=linux go build -o chartscan-${{ matrix.architecture }} ./cmd/chartscan
         
       - name: Upload Binaries as Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: chartscan-binaries-${{ matrix.architecture }}
           path: chartscan-${{ matrix.architecture }}
@@ -48,11 +48,10 @@ jobs:
     needs: build
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v1
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             chartscan-amd64
