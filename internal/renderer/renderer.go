@@ -17,31 +17,39 @@ import (
 	"github.com/Jaydee94/chartscan/internal/models"
 )
 
-type ValueReference struct {
-	Name string
-}
-
 // TemplateParser parses a template file and extracts value references
-func TemplateParser(templateFile string) ([]ValueReference, error) {
+func TemplateParser(templateFile string) ([]models.ValueReference, error) {
 	templateBytes, err := os.ReadFile(templateFile)
 	if err != nil {
 		return nil, err
 	}
 
 	templateString := string(templateBytes)
-	var valueReferences []ValueReference
+	var valueReferences []models.ValueReference
 
-	// Use regular expressions to extract value references from the template
-	re := regexp.MustCompile(`{{\s*([a-zA-Z0-9_]+)\s*}}`)
-	matches := re.FindAllStringSubmatch(templateString, -1)
+	// Regex to capture dot notation values like .Values.service.port
+	re := regexp.MustCompile(`{{\s*\.Values\.([a-zA-Z0-9_.\[\]-]+)\s*}}`)
+	matches := re.FindAllStringSubmatchIndex(templateString, -1)
 
+	lines := strings.Split(templateString, "\n")
 	for _, match := range matches {
-		valueReference := ValueReference{
-			Name: match[1],
+		lineNum := 1
+		for i, line := range lines {
+			if strings.Contains(line, templateString[match[0]:match[1]]) {
+				lineNum = i + 1
+				break
+			}
+		}
+
+		reference := templateString[match[2]:match[3]]
+		valueReference := models.ValueReference{
+			Name:     reference,
+			File:     templateFile,
+			Line:     lineNum,
+			FullText: templateString[match[0]:match[1]],
 		}
 		valueReferences = append(valueReferences, valueReference)
 	}
-
 	return valueReferences, nil
 }
 
@@ -61,26 +69,74 @@ func ValuesLoader(valuesFile string) (map[string]interface{}, error) {
 	return values, nil
 }
 
-// CheckValueReferences checks if value references are defined in the values file
-func CheckValueReferences(valueReferences []ValueReference, values map[string]interface{}) []string {
+func CheckValueReferences(valueReferences []models.ValueReference, values map[string]interface{}) []string {
 	var undefinedValues []string
+
 	for _, valueReference := range valueReferences {
-		if _, ok := values[valueReference.Name]; !ok {
-			undefinedValues = append(undefinedValues, valueReference.Name)
+		keys := strings.Split(valueReference.Name, ".")
+
+		if !checkNestedValueExists(keys, values) {
+			// Add detailed info when the value is undefined
+			undefinedValues = append(undefinedValues, fmt.Sprintf("Undefined value: '%s' referenced in %s at line %d", valueReference.Name, valueReference.File, valueReference.Line))
 		}
 	}
+
 	return undefinedValues
 }
 
-func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string) {
+func checkNestedValueExists(keys []string, currentMap interface{}) bool {
+	// If there are no keys or the current map is nil, return false
+	if len(keys) == 0 || currentMap == nil {
+		return false
+	}
+
+	// Start checking only the nested structure after .Values (no need to check .Values itself)
+	switch v := currentMap.(type) {
+	case map[string]interface{}:
+		// If it's the last key in the path, check if it exists
+		if len(keys) == 1 {
+			_, exists := v[keys[0]]
+			return exists
+		}
+
+		// If there are more keys, continue recursively
+		if nextMap, exists := v[keys[0]]; exists {
+			return checkNestedValueExists(keys[1:], nextMap)
+		}
+
+		return false // Key not found at this level
+
+	default:
+		return false // If the current value is not a map, return false
+	}
+}
+
+// Merge maps, merging nested maps recursively.
+func mergeMaps(target, source map[string]interface{}) {
+	for key, value := range source {
+		if targetValue, exists := target[key]; exists {
+			// If the key already exists, and both are maps, recursively merge
+			if targetMap, ok := targetValue.(map[string]interface{}); ok {
+				if sourceMap, ok := value.(map[string]interface{}); ok {
+					mergeMaps(targetMap, sourceMap)
+					continue
+				}
+			}
+		}
+		// If not a map or doesn't exist, just overwrite the target value
+		target[key] = value
+	}
+}
+
+func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[string]interface{}, []string) {
 	if chartPath == "" {
-		return false, []string{"Chart path is empty"}
+		return false, []string{"Chart path is empty"}, nil, nil
 	}
 
 	chartYamlPath := filepath.Join(chartPath, "Chart.yaml")
 	hasDependencies, err := checkForDependencies(chartYamlPath)
 	if err != nil {
-		return false, []string{fmt.Sprintf("Error reading Chart.yaml: %v", err)}
+		return false, []string{fmt.Sprintf("Error reading Chart.yaml: %v", err)}, nil, nil
 	}
 	if hasDependencies {
 		dependencyCmd := exec.Command("helm", "dependency", "update", chartPath)
@@ -89,10 +145,30 @@ func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string) {
 		dependencyCmd.Stdout = &bytes.Buffer{}
 
 		if err := dependencyCmd.Run(); err != nil {
-			return false, []string{fmt.Sprintf("Error updating dependencies: %v\n%s", err, dependencyStderr.String())}
+			return false, []string{fmt.Sprintf("Error updating dependencies: %v\n%s", err, dependencyStderr.String())}, nil, nil
 		}
 	}
 
+	// Check if each values file exists and exit immediately if any does not exist
+	var missingValuesFiles []string
+	for _, valuesFile := range valuesFiles {
+		if _, err := os.Stat(valuesFile); os.IsNotExist(err) {
+			missingValuesFiles = append(missingValuesFiles, valuesFile)
+		}
+	}
+
+	// If there are missing values files, exit immediately and return an error message
+	if len(missingValuesFiles) > 0 {
+		var errors []string
+		for _, file := range missingValuesFiles {
+			errors = append(errors, fmt.Sprintf("Values file does not exist: %s", file))
+		}
+		// Print the error and exit immediately
+		fmt.Println(strings.Join(errors, "\n"))
+		os.Exit(1) // Exit the program with a non-zero status
+	}
+
+	// Lint the chart
 	lintCmd := exec.Command("helm", "lint", "--strict", chartPath)
 	for _, valuesFile := range valuesFiles {
 		lintCmd.Args = append(lintCmd.Args, "--values", valuesFile)
@@ -102,33 +178,67 @@ func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string) {
 	lintCmd.Stdout = &lintStdout
 	lintCmd.Stderr = &lintStderr
 
+	var lintErrors []string
 	if err := lintCmd.Run(); err != nil {
 		output := lintStdout.String() + lintStderr.String()
-		errorLogs := parseErrorLogs(output)
-		return false, errorLogs
+		lintErrors = parseErrorLogs(output)
 	}
 
-	// Check value references in templates
+	// Parse templates and check value references
 	templateFiles, err := filepath.Glob(filepath.Join(chartPath, "templates", "*.yaml"))
 	if err != nil {
-		return false, []string{fmt.Sprintf("Error finding template files: %v", err)}
+		return false, append(lintErrors, fmt.Sprintf("Error finding template files: %v", err)), nil, nil
 	}
 
+	var valueReferences []models.ValueReference
 	for _, templateFile := range templateFiles {
-		valueReferences, err := TemplateParser(templateFile)
+		refs, err := TemplateParser(templateFile)
 		if err != nil {
-			return false, []string{fmt.Sprintf("Error parsing template file: %v", err)}
+			return false, append(lintErrors, fmt.Sprintf("Error parsing template file: %v", err)), nil, nil
 		}
-
-		values, err := ValuesLoader(filepath.Join(chartPath, "values.yaml"))
-		if err != nil {
-			return false, []string{fmt.Sprintf("Error loading values file: %v", err)}
-		}
-
-		CheckValueReferences(valueReferences, values)
+		valueReferences = append(valueReferences, refs...)
 	}
 
-	return true, nil
+	// Load the default values file (values.yaml)
+	values, err := ValuesLoader(filepath.Join(chartPath, "values.yaml"))
+	if err != nil {
+		return false, append(lintErrors, fmt.Sprintf("Error loading values file: %v", err)), nil, nil
+	}
+
+	// Ensure that values map is initialized if it is nil
+	if values == nil {
+		values = make(map[string]interface{})
+	}
+
+	// Merge additional values files
+	for _, valuesFile := range valuesFiles {
+		if valuesFile != filepath.Join(chartPath, "values.yaml") {
+			additionalValues, err := ValuesLoader(valuesFile)
+			if err != nil {
+				return false, append(lintErrors, fmt.Sprintf("Error loading additional values file %s: %v", valuesFile, err)), nil, nil
+			}
+			// Ensure that additional values map is initialized if it is nil
+			if additionalValues == nil {
+				additionalValues = make(map[string]interface{})
+			}
+			// Merge the additional values into the primary values map
+			mergeMaps(values, additionalValues)
+		}
+	}
+
+	// Check for undefined values
+	var undefinedValues []string
+	if len(valueReferences) > 0 {
+		undefinedValues = CheckValueReferences(valueReferences, values)
+	}
+
+	// Combine errors
+	allErrors := append(lintErrors, undefinedValues...)
+
+	// Success depends on the presence of errors
+	success := len(allErrors) == 0
+
+	return success, allErrors, values, undefinedValues
 }
 
 func checkForDependencies(chartYamlPath string) (bool, error) {
@@ -190,45 +300,40 @@ func colorize(s string, color string) string {
 
 func PrintResultsPretty(results []models.Result) {
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Chart Path", "Success", "Errors"})
+	table.SetHeader([]string{"Chart Path", "Success", "Details"})
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
 	table.SetAutoWrapText(false)
 	table.SetRowLine(true)
 
-	var validCharts int
-	var invalidCharts int
+	var validCharts, invalidCharts int
 
 	for _, result := range results {
-		var successStr string
-		if result.Success {
-			successStr = colorSymbol("✔", true)
-			validCharts++
-		} else {
-			successStr = colorSymbol("✘", false)
+		successStr := colorSymbol("✔", result.Success)
+		if !result.Success {
+			successStr = colorSymbol("✘", result.Success)
 			invalidCharts++
+		} else {
+			validCharts++
 		}
 
 		errorStr := ""
 		if len(result.Errors) > 0 {
-			errorLines := make([]string, len(result.Errors))
-			for i, err := range result.Errors {
-				errorLines[i] = "* " + err
+			errorStr += "Errors:\n"
+			for _, err := range result.Errors {
+				errorStr += "* " + err + "\n"
 			}
-			errorStr = strings.Join(errorLines, "\n")
-			table.Append([]string{
-				result.ChartPath,
-				successStr,
-				errorStr,
-			})
-		} else {
-			table.Append([]string{
-				result.ChartPath,
-				successStr,
-				"",
-			})
 		}
+
+		table.Append([]string{
+			result.ChartPath,
+			successStr,
+			errorStr,
+		})
 	}
+
 	table.Render()
+
+	// Summary Table
 	summaryTable := tablewriter.NewWriter(os.Stdout)
 	summaryTable.SetHeader([]string{"Category", "Count"})
 	summaryTable.Append([]string{"Valid Charts", colorize(strconv.Itoa(validCharts), "green")})

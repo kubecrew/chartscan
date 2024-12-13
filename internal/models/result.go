@@ -1,7 +1,16 @@
 package models
 
 type Result struct {
-	ChartPath string   `json:"chartPath" yaml:"chartPath"`
-	Success   bool     `json:"success" yaml:"success"`
-	Errors    []string `json:"errors" yaml:"errors"`
+	ChartPath       string                 `json:"ChartPath"`
+	Success         bool                   `json:"Success"`
+	Errors          []string               `json:"Errors,omitempty"`
+	UndefinedValues []string               `json:"UndefinedValues,omitempty"`
+	Values          map[string]interface{} `json:"Values,omitempty"`
+}
+
+type ValueReference struct {
+	Name     string
+	File     string
+	Line     int
+	FullText string
 }
