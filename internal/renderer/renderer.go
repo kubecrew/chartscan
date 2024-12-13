@@ -147,6 +147,18 @@ func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string, ma
 		if err := dependencyCmd.Run(); err != nil {
 			return false, []string{fmt.Sprintf("Error updating dependencies: %v\n%s", err, dependencyStderr.String())}, nil, nil
 		}
+
+		// Cleanup fetched Helm dependencies
+		chartsDir := filepath.Join(chartPath, "charts")
+		chartLockFile := filepath.Join(chartPath, "Chart.lock")
+		defer func() {
+			if err := os.RemoveAll(chartsDir); err != nil {
+				fmt.Printf("Warning: Failed to clean up charts directory: %v\n", err)
+			}
+			if err := os.Remove(chartLockFile); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("Warning: Failed to remove Chart.lock: %v\n", err)
+			}
+		}()
 	}
 
 	// Check if each values file exists and exit immediately if any does not exist
@@ -163,7 +175,6 @@ func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string, ma
 		for _, file := range missingValuesFiles {
 			errors = append(errors, fmt.Sprintf("Values file does not exist: %s", file))
 		}
-		// Print the error and exit immediately
 		fmt.Println(strings.Join(errors, "\n"))
 		os.Exit(1) // Exit the program with a non-zero status
 	}
