@@ -10,31 +10,26 @@
 - Supports multiple values files for rendering charts.
 - Configurable output formats: **pretty**, **JSON**, or **YAML**.
 - Supports configuration through YAML-based config files.
-- Includes a loading indicator during processing.
-- Verifies that the Helm CLI is installed before execution.
 
 ---
 
 ## Installation
 
-1. Clone the repository:
+### Precompiled Binaries
+
+For convenience, precompiled binaries are available for the latest releases of **ChartScan**. These binaries are built for multiple architectures and can be directly downloaded from the **Releases** page on GitHub.
+
+To download the latest release:
+
+1. Go to the [ChartScan Releases Page](https://github.com/Jaydee94/chartscan/releases).
+2. Download the appropriate binary for your system:
+   - **Linux amd64**: `chartscan-amd64`
+   - **Linux arm64**: `chartscan-arm64`
+   - **Linux 386**: `chartscan-386`
+3. (Optional) Move the binary to a directory in your system's `PATH`:
 
    ```bash
-   git clone https://github.com/Jaydee94/chartscan.git
-   cd chartscan
-   ```
-
-2. Build the binary:
-
-   ```bash
-   go build -o chartscan
-   ```
-
-3. (Optional) Move the binary to your PATH:
-
-   ```bash
-   mv chartscan /usr/local/bin
-   ```
+   mv chartscan-[architecture] /usr/local/bin/chartscan
 
 ---
 
@@ -42,7 +37,6 @@
 
 Ensure the following dependencies are installed:
 
-- **Go**: [Install Go](https://golang.org/dl/)
 - **Helm**: [Install Helm](https://helm.sh/docs/intro/install/)
 
 ---
@@ -127,17 +121,3 @@ Contributions are welcome! Please follow these steps:
 3. Commit your changes (`git commit -m "Add feature"`).
 4. Push to the branch (`git push origin feature-name`).
 5. Open a pull request.
-
----
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
----
-
-## Acknowledgments
-
-- Built with [Cobra](https://github.com/spf13/cobra) for CLI management.
-- Utilizes [briandowns/spinner](https://github.com/briandowns/spinner) for loading indicators.
-- Inspired by the need for streamlined Helm chart debugging.
