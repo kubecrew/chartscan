@@ -14,69 +14,74 @@ import (
 )
 
 func main() {
-	var rootPath string
-	var outputFormat string
+	var format string
 
-	var rootCmd = &cobra.Command{
-		Use:   "chartscan",
+	rootCmd := &cobra.Command{
+		Use:   "chartscan [chart-path]",
 		Short: "ChartScan is a tool to scan Helm charts",
 		Run: func(cmd *cobra.Command, args []string) {
-			if rootPath == "" && len(args) < 1 {
+			if len(args) < 1 {
 				cmd.Help()
 				os.Exit(1)
 			}
 
-			if rootPath == "" && len(args) > 0 {
-				rootPath = args[0]
-			}
-
-			chartDirs, err := finder.FindHelmChartDirs(rootPath)
+			chartPath := args[0]
+			valuesFiles, err := cmd.Flags().GetStringSlice("values")
 			if err != nil {
-				fmt.Printf("Error finding Helm charts: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error getting values files: %v\n", err)
 				os.Exit(1)
 			}
 
-			var results []models.Result
+			if len(valuesFiles) == 0 {
+				valuesFiles = []string{}
+			}
+
+			chartDirs, err := finder.FindHelmChartDirs(chartPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error finding Helm charts: %v\n", err)
+				os.Exit(1)
+			}
+
+			var scanResults []models.Result
 			for _, chartDir := range chartDirs {
-				success, errors := renderer.RenderHelmChart(chartDir)
-				results = append(results, models.Result{
+				success, errors := renderer.RenderHelmChart(chartDir, valuesFiles)
+				scanResults = append(scanResults, models.Result{
 					ChartPath: chartDir,
 					Success:   success,
 					Errors:    errors,
 				})
 			}
 
-			switch outputFormat {
+			switch format {
 			case "pretty":
-				renderer.PrintResultsPretty(results)
+				renderer.PrintResultsPretty(scanResults)
 			case "json":
-				output, err := json.MarshalIndent(results, "", "  ")
+				output, err := json.MarshalIndent(scanResults, "", "  ")
 				if err != nil {
-					fmt.Printf("Error marshaling results to JSON: %v\n", err)
+					fmt.Fprintf(os.Stderr, "Error marshaling results to JSON: %v\n", err)
 					os.Exit(1)
 				}
 				fmt.Println(string(output))
 			case "yaml":
-				output, err := yaml.Marshal(results)
+				output, err := yaml.Marshal(scanResults)
 				if err != nil {
-					fmt.Printf("Error marshaling results to YAML: %v\n", err)
+					fmt.Fprintf(os.Stderr, "Error marshaling results to YAML: %v\n", err)
 					os.Exit(1)
 				}
 				fmt.Println(string(output))
 			default:
-				fmt.Printf("Invalid output format: %s\n", outputFormat)
+				fmt.Fprintf(os.Stderr, "Invalid output format: %s\n", format)
 				cmd.Help()
 				os.Exit(1)
 			}
-
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&rootPath, "path", "p", "", "Path to the Helm charts directory")
-	rootCmd.Flags().StringVarP(&outputFormat, "output", "o", "pretty", "Output format (json|yaml|pretty)")
+	rootCmd.Flags().StringVarP(&format, "output", "o", "pretty", "Output format (json|yaml|pretty)")
+	rootCmd.Flags().StringSliceP("values", "f", []string{}, "Specify one or more Helm values files to use during the linting process.")
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
