@@ -102,9 +102,14 @@ func main() {
 			defer s.Stop()
 
 			var scanResults []models.Result
+			var invalidCharts int // Counter for invalid charts
+
 			for _, chartDir := range chartDirs {
 				s.Suffix = fmt.Sprintf(" Scanning charts: %s", chartDirs)
 				success, errors, values, undefinedValues := renderer.RenderHelmChart(chartDir, config.ValuesFiles)
+				if !success {
+					invalidCharts++ // Increment invalid charts counter
+				}
 				scanResults = append(scanResults, models.Result{
 					ChartPath:       chartDir,
 					Success:         success,
@@ -137,6 +142,11 @@ func main() {
 			default:
 				fmt.Fprintf(os.Stderr, "Unknown output format: %s\n", config.Format)
 				os.Exit(1)
+			}
+
+			// Set exit code based on whether there are invalid charts
+			if invalidCharts > 0 {
+				os.Exit(1) // Exit with code 1 if there are invalid charts
 			}
 		},
 	}
