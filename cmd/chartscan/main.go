@@ -5,6 +5,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +45,12 @@ func main() {
 		Short: "Scan Helm charts for potential issues",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			// Automatically load the config file from the git repo if possible
+			configFile, err := loadConfigFileFromGitRepo()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
+				os.Exit(1)
+			}
 			// Load the configuration from the configuration file and/or CLI arguments
 			config, err := loadConfig(configFile, valuesFiles, format, args)
 			if err != nil {
@@ -113,9 +122,15 @@ func main() {
 	// template subcommand
 	templateCmd := &cobra.Command{
 		Use:   "template [chart-path]...",
-		Short: "Render Helm charts using a template",
+		Short: "Render Helm charts using helm template",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			// Automatically load the config file from the git repo if possible
+			configFile, err := loadConfigFileFromGitRepo()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
+				os.Exit(1)
+			}
 			// Load the configuration from the configuration file and/or CLI arguments
 			config, err := loadConfig(configFile, valuesFiles, format, args)
 			if err != nil {
@@ -124,7 +139,7 @@ func main() {
 			}
 
 			// Create a spinner to indicate progress
-			s := spinner.New(spinner.CharSets[43], 100*time.Millisecond)
+			s := spinner.New(spinner.CharSets[4], 100*time.Millisecond)
 			s.Start()
 			defer s.Stop()
 
@@ -132,7 +147,7 @@ func main() {
 			// Call TemplateHelmChart for each chart provided
 			for _, chartPath := range chartPaths {
 				// Update the spinner with the chart being rendered
-				s.Suffix = fmt.Sprintf(" Rendering: %s", chartPaths)
+				s.Suffix = fmt.Sprintf(" Templating: %s", chartPaths)
 
 				err := renderer.TemplateHelmChart(chartPath, config.ValuesFiles, outputFile)
 				if err != nil {
@@ -171,6 +186,61 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// checkIfInGitRepo checks if the current working directory is inside a Git repository
+func checkIfInGitRepo() (bool, string, error) {
+	// Run `git rev-parse --is-inside-work-tree` to check if we're inside a git repo
+	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, "", err
+	}
+	// If the output is "true", we're in a git repository
+	if strings.TrimSpace(string(output)) == "true" {
+		// Run `git rev-parse --show-toplevel` to get the root directory of the git repo
+		cmd = exec.Command("git", "rev-parse", "--show-toplevel")
+		rootDirOutput, err := cmd.Output()
+		if err != nil {
+			return false, "", err
+		}
+		rootDir := strings.TrimSpace(string(rootDirOutput))
+		return true, rootDir, nil
+	}
+	return false, "", nil
+}
+
+// findConfigFileInGitRepo checks if the `chartscan.yaml` file exists in the root of the Git repo
+func findConfigFileInGitRepo(rootDir string) string {
+	// Look for the chartscan.yaml file in the root of the repo
+	configFilePath := filepath.Join(rootDir, "chartscan.yaml")
+	if _, err := os.Stat(configFilePath); err == nil {
+		// If the file exists, return its path
+		return configFilePath
+	}
+	return ""
+}
+
+// loadConfigFileFromGitRepo checks if we are in a Git repository and if
+// the chartscan.yaml file exists in the root of the Git repo
+func loadConfigFileFromGitRepo() (string, error) {
+	// Check if we are in a Git repository
+	isInRepo, rootDir, err := checkIfInGitRepo()
+	if err != nil {
+		return "", err
+	}
+
+	if isInRepo {
+		// If we're inside a Git repo, look for the chartscan.yaml in the repo root
+		configFile := findConfigFileInGitRepo(rootDir)
+		if configFile != "" {
+			// Notify that the config file was found
+			fmt.Printf("Using config file from project root: %s\n", configFile)
+			return configFile, nil
+		}
+	}
+
+	return "", nil
 }
 
 // printJUnitTestReport generates a JUnit-compatible unit test report
@@ -222,14 +292,14 @@ func printJUnitTestReport(results []models.Result) error {
 }
 
 // loadConfig dynamically loads the configuration from a file and/or CLI arguments
-//
-// The configuration is loaded from the given file (if specified) and/or
-// overridden with the given CLI arguments and default values.
 func loadConfig(configFile string, valuesFiles []string, format string, args []string) (models.Config, error) {
 	config := models.Config{}
 
 	// Load from configuration file if specified
 	if configFile != "" {
+		// Get the directory of the config file
+		configDir := filepath.Dir(configFile)
+
 		data, err := os.ReadFile(configFile)
 		if err != nil {
 			return config, fmt.Errorf("error reading config file: %v", err)
@@ -238,6 +308,20 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 		// Unmarshal the configuration from the file
 		if err := yaml.Unmarshal(data, &config); err != nil {
 			return config, fmt.Errorf("error decoding config file: %v", err)
+		}
+
+		// Resolve relative paths for chart path and values files
+		config.ChartPath, err = resolveRelativePath(configDir, config.ChartPath)
+		if err != nil {
+			return config, fmt.Errorf("error resolving chartPath: %v", err)
+		}
+
+		// Resolve relative values files
+		for i, valuesFile := range config.ValuesFiles {
+			config.ValuesFiles[i], err = resolveRelativePath(configDir, valuesFile)
+			if err != nil {
+				return config, fmt.Errorf("error resolving valuesFile %s: %v", valuesFile, err)
+			}
 		}
 	}
 
@@ -266,6 +350,15 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 	return config, nil
 }
 
+// resolveRelativePath resolves a relative path based on the given base directory
+func resolveRelativePath(baseDir, relativePath string) (string, error) {
+	// Resolve relative path to absolute path based on the baseDir
+	// This makes sure the paths are valid regardless of the current working directory
+	absolutePath := filepath.Join(baseDir, relativePath)
+	// Normalize the path to avoid issues with .. or redundant slashes
+	return filepath.Abs(absolutePath)
+}
+
 // processCharts scans and processes all chart directories concurrently
 //
 // This function takes a list of chart directories and a configuration object, and
@@ -279,7 +372,7 @@ func processCharts(chartDirs []string, config models.Config) ([]models.Result, i
 	invalidCharts := 0
 
 	// Create a spinner to indicate progress
-	s := spinner.New(spinner.CharSets[43], 100*time.Millisecond)
+	s := spinner.New(spinner.CharSets[4], 100*time.Millisecond)
 	s.Start()
 	defer s.Stop()
 
@@ -303,9 +396,10 @@ func processCharts(chartDirs []string, config models.Config) ([]models.Result, i
 			if !success {
 				invalidCharts++
 			}
-			// Append the result to the slice of results
+
+			// Append the result to the results slice
 			results = append(results, models.Result{
-				ChartPath:       chartDir,
+				ChartPath:       chartDir, // Corrected from "Name" to "ChartPath"
 				Success:         success,
 				Errors:          errors,
 				Values:          values,
@@ -314,10 +408,8 @@ func processCharts(chartDirs []string, config models.Config) ([]models.Result, i
 		}(chartDir)
 	}
 
-	// Wait for all the goroutines to finish
+	// Wait for all goroutines to finish
 	wg.Wait()
-	// Stop the spinner
-	s.Stop()
 
 	// Return the slice of results and the number of invalid charts
 	return results, invalidCharts

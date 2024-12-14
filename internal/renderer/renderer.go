@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -223,7 +222,25 @@ func TemplateHelmChart(chartPath string, valuesFiles []string, outputFile string
 
 	// Determine the release name (the folder name of the chart path)
 	_, releaseName := filepath.Split(chartPath)
+
+	// If the release name is ".", we should use the last part of the current directory as the release name
+	if releaseName == "." {
+		// Get the current working directory
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("error getting current directory: %v", err)
+		}
+
+		// Get the last part of the current directory as the release name
+		_, releaseName = filepath.Split(currentDir)
+	}
+
 	releaseName = strings.TrimSpace(releaseName)
+
+	// Validate that the release name is valid according to Helm's regex
+	if !isValidReleaseName(releaseName) {
+		return fmt.Errorf("invalid release name: %s", releaseName)
+	}
 
 	// Check and handle dependencies
 	success, errors := handleDependencies(chartPath)
@@ -276,6 +293,14 @@ func TemplateHelmChart(chartPath string, valuesFiles []string, outputFile string
 	defer cleanupDependencies(chartPath)
 
 	return nil
+}
+
+// Helper function to check if the release name is valid
+func isValidReleaseName(name string) bool {
+	// This is the Helm regex for valid release names
+	const releaseNamePattern = `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	re := regexp.MustCompile(releaseNamePattern)
+	return re.MatchString(name)
 }
 
 // Handle Helm chart dependencies
@@ -522,7 +547,7 @@ func colorize(s string, color string) string {
 // and any error messages for each chart.
 func PrintResultsPretty(results []models.Result, duration time.Duration) {
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Chart Path", "Success", "Details"})
+	table.SetHeader([]string{"Chart Name", "Success", "Details"})
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
 	table.SetAutoWrapText(false)
 	table.SetRowLine(true)
@@ -534,6 +559,13 @@ func PrintResultsPretty(results []models.Result, duration time.Duration) {
 
 	// Iterate over the results and construct the table rows
 	for _, result := range results {
+		// Get the chart name from the Chart.yaml file
+		chartName, err := getChartName(result.ChartPath)
+		if err != nil {
+			// If there is an error reading the Chart.yaml, fallback to the chart path
+			chartName = result.ChartPath
+		}
+
 		// Set the success string to a colored checkmark or exclamation mark
 		successStr := colorSymbol("✔", result.Success)
 		if !result.Success {
@@ -543,34 +575,50 @@ func PrintResultsPretty(results []models.Result, duration time.Duration) {
 			validCharts++
 		}
 
-		// Construct a string of any error messages
-		var errorStr strings.Builder
-		if len(result.Errors) > 0 {
-			errorStr.WriteString("Errors:\n")
-			for _, err := range result.Errors {
-				errorStr.WriteString("* " + err + "\n")
-			}
+		// Create the row for the table
+		row := []string{
+			chartName,                         // Chart name
+			successStr,                        // Success status
+			strings.Join(result.Errors, "\n"), // Error details
 		}
-
-		// Append the row to the slice of rows
-		rows = append(rows, []string{
-			result.ChartPath,
-			successStr,
-			errorStr.String(),
-		})
+		rows = append(rows, row)
 	}
 
-	// Append the rows to the table and render it
-	table.AppendBulk(rows)
+	// Print the table rows
+	for _, row := range rows {
+		table.Append(row)
+	}
+
+	// Print the table
 	table.Render()
 
-	// Create a summary table
-	summaryTable := tablewriter.NewWriter(os.Stdout)
-	summaryTable.SetHeader([]string{"Category", "Count"})
-	summaryTable.AppendBulk([][]string{
-		{"Valid Charts", colorize(strconv.Itoa(validCharts), "green")},
-		{"Invalid Charts", colorize(strconv.Itoa(invalidCharts), "red")},
-		{"Scan Duration", colorize(duration.String(), "blue")},
-	})
-	summaryTable.Render()
+	// Print the summary
+	fmt.Printf("\nSummary: %d valid charts, %d invalid charts scanned in %v\n", validCharts, invalidCharts, duration)
+}
+
+// getChartName reads the Chart.yaml file from the given chart path and returns the chart name.
+func getChartName(chartPath string) (string, error) {
+	// Construct the path to the Chart.yaml file
+	chartYamlPath := filepath.Join(chartPath, "Chart.yaml")
+
+	// Read the Chart.yaml file
+	data, err := os.ReadFile(chartYamlPath)
+	if err != nil {
+		return "", fmt.Errorf("error reading Chart.yaml: %v", err)
+	}
+
+	// Parse the YAML content of Chart.yaml
+	var chartData map[string]interface{}
+	err = yaml.Unmarshal(data, &chartData)
+	if err != nil {
+		return "", fmt.Errorf("error parsing Chart.yaml: %v", err)
+	}
+
+	// Extract the chart name
+	name, ok := chartData["name"].(string)
+	if !ok {
+		return "", fmt.Errorf("missing or invalid name in Chart.yaml")
+	}
+
+	return name, nil
 }
