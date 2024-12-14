@@ -17,49 +17,6 @@ import (
 )
 
 // Config holds the program configuration
-type Config struct {
-	ChartPath   string   `yaml:"chartPath"`   // Base path to search for Helm charts
-	ValuesFiles []string `yaml:"valuesFiles"` // List of values files to use during rendering
-	Format      string   `yaml:"format"`      // Output format: pretty, json, yaml, junit
-}
-
-// TestSuite represents a JUnit-style test suite for test reports
-type TestSuite struct {
-	XMLName    xml.Name   `xml:"testsuite"`
-	Name       string     `xml:"name,attr"`
-	Tests      int        `xml:"tests,attr"`
-	Failures   int        `xml:"failures,attr"`
-	Time       string     `xml:"time,attr"`
-	TestCases  []TestCase `xml:"testcase"`
-	Properties []Property `xml:"properties>property,omitempty"`
-}
-
-// TestCase represents a single test case in a JUnit-style test report
-type TestCase struct {
-	Name      string     `xml:"name,attr"`
-	ClassName string     `xml:"classname,attr"`
-	Time      string     `xml:"time,attr"`
-	Failure   *Failure   `xml:"failure,omitempty"`
-	SystemOut *SystemOut `xml:"system-out,omitempty"`
-}
-
-// Failure represents a failure in a test case
-type Failure struct {
-	Message string `xml:"message,attr"`
-	Type    string `xml:"type,attr"`
-	Content string `xml:",chardata"`
-}
-
-// SystemOut captures stdout for a test case
-type SystemOut struct {
-	Content string `xml:",chardata"`
-}
-
-// Property represents a property in the JUnit test suite
-type Property struct {
-	Name  string `xml:"name,attr"`
-	Value string `xml:"value,attr"`
-}
 
 var version = "dev"
 
@@ -172,25 +129,25 @@ func main() {
 // The report will contain one test case per chart, with a failure
 // if the chart did not render successfully.
 func printJUnitTestReport(results []models.Result) error {
-	var testCases []TestCase
+	var testCases []models.TestCase
 	failures := 0
 
 	for _, result := range results {
-		testCase := TestCase{
+		testCase := models.TestCase{
 			Name:      result.ChartPath,
 			ClassName: "ChartScan",
 			Time:      "0", // Dummy value for now; can measure rendering time if required
 		}
 
 		if !result.Success {
-			testCase.Failure = &Failure{
+			testCase.Failure = &models.Failure{
 				Message: "Chart rendering failed",
 				Type:    "RenderingError",
 				Content: fmt.Sprintf("Errors: %v\nUndefined Values: %v", result.Errors, result.UndefinedValues),
 			}
 			failures++
 		} else {
-			testCase.SystemOut = &SystemOut{
+			testCase.SystemOut = &models.SystemOut{
 				Content: fmt.Sprintf("Chart %v rendered successfully", result.ChartPath),
 			}
 		}
@@ -198,7 +155,7 @@ func printJUnitTestReport(results []models.Result) error {
 		testCases = append(testCases, testCase)
 	}
 
-	suite := TestSuite{
+	suite := models.TestSuite{
 		Name:      "Helm Chart Scan",
 		Tests:     len(results),
 		Failures:  failures,
@@ -218,8 +175,8 @@ func printJUnitTestReport(results []models.Result) error {
 //
 // The configuration is loaded from the given file (if specified) and/or
 // overridden with the given CLI arguments and default values.
-func loadConfig(configFile string, valuesFiles []string, format string, args []string) (Config, error) {
-	config := Config{}
+func loadConfig(configFile string, valuesFiles []string, format string, args []string) (models.Config, error) {
+	config := models.Config{}
 
 	// Load from configuration file if specified
 	if configFile != "" {
@@ -264,7 +221,7 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 // This function takes a list of chart directories and a configuration object, and
 // scans and processes all the charts concurrently. It returns a slice of results
 // and the number of invalid charts.
-func processCharts(chartDirs []string, config Config) ([]models.Result, int) {
+func processCharts(chartDirs []string, config models.Config) ([]models.Result, int) {
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
 
@@ -282,8 +239,10 @@ func processCharts(chartDirs []string, config Config) ([]models.Result, int) {
 		go func(chartDir string) {
 			defer wg.Done()
 
-			// Update the spinner with a suffix indicating the chart being scanned
-			s.Suffix = fmt.Sprintf(" Scanning charts: %s", chartDir)
+			// Update the spinner with the chart being scanned
+			s.Suffix = fmt.Sprintf(" Scanning: %s", chartDirs)
+
+			// Start rendering the chart
 			success, errors, values, undefinedValues := renderer.RenderHelmChart(chartDir, config.ValuesFiles)
 
 			// Protect shared variables with a mutex
@@ -309,6 +268,7 @@ func processCharts(chartDirs []string, config Config) ([]models.Result, int) {
 	wg.Wait()
 	// Stop the spinner
 	s.Stop()
+
 	// Return the slice of results and the number of invalid charts
 	return results, invalidCharts
 }
