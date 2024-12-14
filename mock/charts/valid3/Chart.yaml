@@ -1,0 +1,4 @@
+apiVersion: v2
+name: valid2
+description: Another dummy Helm chart for testing
+version: 0.1.0

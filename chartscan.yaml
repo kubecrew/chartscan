@@ -1,2 +1,4 @@
-chartPath: "./charts"
+chartPath: "./mock/charts"
 format: "json"
+valuesFiles:
+  - mock/values.yaml
