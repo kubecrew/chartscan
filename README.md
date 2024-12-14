@@ -61,6 +61,26 @@ The `scan` command is used to analyze Helm charts for potential issues:
 chartscan scan [chart-path]
 ```
 
+### Options for `scan`
+
+- `-f, --values`: Specify values files to use for rendering.
+- `-o, --format`: Set the output format (pretty, json, yaml, junit). Default is `pretty`.
+- `-c, --config`: Provide a configuration file (YAML format) to override CLI flags.
+
+#### Template Command
+
+The `template` command is used to render Helm charts with helm template:
+
+```bash
+chartscan template [chart-path]
+```
+
+### Options for `template`
+
+- `-f, --values`: Specify values files to use for rendering.
+- `-o, --format`: Specify an output file to write the rendered chart (optional).
+- `-c, --config`: Provide a configuration file (YAML format) to override CLI flags.
+
 #### Version Command
 
 The `version` command displays the current version of ChartScan:
@@ -68,12 +88,6 @@ The `version` command displays the current version of ChartScan:
 ```bash
 chartscan version
 ```
-
-### Options for `scan`
-
-- `-f, --values`: Specify values files to use for rendering.
-- `-o, --format`: Set the output format (pretty, json, yaml, junit). Default is `pretty`.
-- `-c, --config`: Provide a configuration file (YAML format) to override CLI flags.
 
 ### Examples
 
@@ -94,6 +108,35 @@ valuesFiles:
   - values.yaml
 format: yaml
 ```
+
+---
+
+## Automatic Config File Loading in Git Repositories
+
+When you run ChartScan inside a Git repository, the tool will automatically search for and load a configuration file located in the root directory of the repository. This behavior eliminates the need to manually specify the config file with the -c option if you already have one in your repository.
+
+How It Works
+ChartScan looks for a file named chartscan.yaml in the root directory of the repository.
+If the config file is found, ChartScan will automatically load it and use its settings, including chart paths, values files, output format, and more.
+
+This behavior simplifies configuration management, especially for projects with shared settings across team members.
+Example: Automatic Config Loading
+For example, if your Git repository has the following directory structure:
+
+```
+my-repo/
+├── chartscan.yaml
+├── charts/
+│   └── my-chart/
+├── values.yaml
+└── README.md
+```
+When you run (inside a git repo with a chartscan.yaml in the root directory):
+
+```bash
+chartscan scan ./charts
+```
+ChartScan will automatically detect and use chartscan.yaml for its configuration.
 
 ---
 
