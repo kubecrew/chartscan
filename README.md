@@ -6,8 +6,9 @@
 ![Stars](https://img.shields.io/github/stars/Jaydee94/chartscan.svg)
 
 
-
 **ChartScan** is a CLI tool for scanning and analyzing Helm charts. It provides insights into Helm chart configurations, values, and rendering issues, allowing developers to efficiently debug and validate Helm charts before deployment.
+
+<img src="logo/chartscan.png" alt="drawing" width="300"/>
 
 ---
 
