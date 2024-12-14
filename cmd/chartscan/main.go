@@ -27,6 +27,8 @@ func main() {
 	var valuesFiles []string
 	// format stores the desired output format
 	var format string
+	// outputFile for specifying the output file for the rendered chart
+	var outputFile string
 
 	// Root command
 	rootCmd := &cobra.Command{
@@ -38,7 +40,7 @@ func main() {
 	scanCmd := &cobra.Command{
 		Use:   "scan [chart-path]",
 		Short: "Scan Helm charts for potential issues",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			// Load the configuration from the configuration file and/or CLI arguments
 			config, err := loadConfig(configFile, valuesFiles, format, args)
@@ -49,11 +51,16 @@ func main() {
 
 			startTime := time.Now()
 
-			// Find the Helm charts to scan
-			chartDirs, err := finder.FindHelmChartDirs(config.ChartPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error finding Helm charts: %v\n", err)
-				os.Exit(1)
+			var chartDirs []string
+			// Iterate over all chart paths passed in args
+			for _, chartPath := range args {
+				// Find the Helm charts to scan in each path
+				dirs, err := finder.FindHelmChartDirs(chartPath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error finding Helm charts in %s: %v\n", chartPath, err)
+					os.Exit(1)
+				}
+				chartDirs = append(chartDirs, dirs...) // Combine the directories found
 			}
 
 			// Process the Helm charts
@@ -103,6 +110,48 @@ func main() {
 	scanCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
 	scanCmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
 
+	// template subcommand
+	templateCmd := &cobra.Command{
+		Use:   "template [chart-path]...",
+		Short: "Render Helm charts using a template",
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			// Load the configuration from the configuration file and/or CLI arguments
+			config, err := loadConfig(configFile, valuesFiles, format, args)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+				os.Exit(1)
+			}
+
+			// Create a spinner to indicate progress
+			s := spinner.New(spinner.CharSets[43], 100*time.Millisecond)
+			s.Start()
+			defer s.Stop()
+
+			chartPaths := args
+			// Call TemplateHelmChart for each chart provided
+			for _, chartPath := range chartPaths {
+				// Update the spinner with the chart being rendered
+				s.Suffix = fmt.Sprintf(" Rendering: %s", chartPaths)
+
+				err := renderer.TemplateHelmChart(chartPath, config.ValuesFiles, outputFile)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error rendering chart %s: %v\n", chartPath, err)
+					s.Stop() // Stop the spinner on error
+					os.Exit(1)
+				}
+			}
+
+			// Stop the spinner after all charts are processed
+			s.Stop()
+		},
+	}
+
+	// Add flags to the template subcommand
+	templateCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
+	templateCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file to write the rendered chart (optional)")
+	templateCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file") // Ensure this flag is added here
+
 	// Version subcommand
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -114,6 +163,7 @@ func main() {
 
 	// Add subcommands to the root command
 	rootCmd.AddCommand(scanCmd)
+	rootCmd.AddCommand(templateCmd)
 	rootCmd.AddCommand(versionCmd)
 
 	// Execute the root command
@@ -229,7 +279,7 @@ func processCharts(chartDirs []string, config models.Config) ([]models.Result, i
 	invalidCharts := 0
 
 	// Create a spinner to indicate progress
-	s := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
+	s := spinner.New(spinner.CharSets[43], 100*time.Millisecond)
 	s.Start()
 	defer s.Stop()
 
@@ -243,7 +293,7 @@ func processCharts(chartDirs []string, config models.Config) ([]models.Result, i
 			s.Suffix = fmt.Sprintf(" Scanning: %s", chartDirs)
 
 			// Start rendering the chart
-			success, errors, values, undefinedValues := renderer.RenderHelmChart(chartDir, config.ValuesFiles)
+			success, errors, values, undefinedValues := renderer.ScanHelmChart(chartDir, config.ValuesFiles)
 
 			// Protect shared variables with a mutex
 			mutex.Lock()

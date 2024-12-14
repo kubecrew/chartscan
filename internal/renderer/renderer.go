@@ -166,10 +166,10 @@ func mergeMaps(target, source map[string]interface{}) {
 
 // Refactored RenderHelmChart function and its components
 
-// RenderHelmChart renders a Helm chart and checks for undefined values in the chart and values files.
+// ScanHelmChart renders a Helm chart and checks for undefined values in the chart and values files.
 // The function takes a chart path and a slice of values files as input and returns a boolean indicating
 // success or failure, a slice of errors encountered, a map of values and a slice of undefined values.
-func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[string]interface{}, []string) {
+func ScanHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[string]interface{}, []string) {
 	if chartPath == "" {
 		return false, []string{"Chart path is empty"}, nil, nil
 	}
@@ -206,19 +206,88 @@ func RenderHelmChart(chartPath string, valuesFiles []string) (bool, []string, ma
 	// Determine success
 	success = len(allErrors) == 0
 
+	// Defer cleanup of dependencies after linting and value checks
+	defer cleanupDependencies(chartPath)
+
 	return success, allErrors, values, undefinedValues
 }
 
+// TemplateHelmChart renders a Helm chart using the `helm template` command and outputs the results to stdout or a file.
+// It takes a chart path, release name, output file (optional), and additional values files (optional).
+// It returns any error encountered during the process.
+func TemplateHelmChart(chartPath string, valuesFiles []string, outputFile string) error {
+	// Ensure the chartPath is not empty
+	if chartPath == "" {
+		return fmt.Errorf("chart path is empty")
+	}
+
+	// Determine the release name (the folder name of the chart path)
+	_, releaseName := filepath.Split(chartPath)
+	releaseName = strings.TrimSpace(releaseName)
+
+	// Check and handle dependencies
+	success, errors := handleDependencies(chartPath)
+	if !success {
+		return fmt.Errorf("error building dependencies: %s", errors)
+	}
+
+	// Prepare the helm template command
+	templateCmd := exec.Command("helm", "template", releaseName, chartPath)
+
+	// Add each values file to the command arguments
+	for _, valuesFile := range valuesFiles {
+		templateCmd.Args = append(templateCmd.Args, "--values", valuesFile)
+	}
+
+	// Buffers to capture the standard output and error streams
+	var templateStdout, templateStderr bytes.Buffer
+	templateCmd.Stdout = &templateStdout
+	templateCmd.Stderr = &templateStderr
+
+	// Run the Helm template command
+	if err := templateCmd.Run(); err != nil {
+		// If there is an error, print stderr and return the error
+		return fmt.Errorf("error running helm template: %v\nstderr: %s", err, templateStderr.String())
+	}
+
+	// Output the result based on the outputFile argument
+	if outputFile == "" {
+		// Print the result to stdout if no outputFile is specified
+		fmt.Println(templateStdout.String())
+	} else {
+		// Open the output file in append mode (create if it doesn't exist)
+		file, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("error opening output file %s: %v", outputFile, err)
+		}
+		defer file.Close()
+
+		// Append the rendered chart output to the file
+		if _, err := file.Write(templateStdout.Bytes()); err != nil {
+			return fmt.Errorf("error writing to output file %s: %v", outputFile, err)
+		}
+
+		if _, err := file.Write([]byte("\n")); err != nil {
+			return fmt.Errorf("error writing separator to output file %s: %v", outputFile, err)
+		}
+	}
+
+	// Defer cleanup of dependencies after helm template execution
+	defer cleanupDependencies(chartPath)
+
+	return nil
+}
+
 // Handle Helm chart dependencies
-//
-// The function takes a chart path as input and returns a boolean indicating success or failure and a slice of errors encountered.
 func handleDependencies(chartPath string) (bool, []string) {
 	chartYamlPath := filepath.Join(chartPath, "Chart.yaml")
 	hasDependencies, err := checkForDependencies(chartYamlPath)
+
 	// If there is an error reading the Chart.yaml file, return failure and the error message
 	if err != nil {
 		return false, []string{fmt.Sprintf("Error reading Chart.yaml: %v", err)}
 	}
+
 	// If the chart has dependencies, update them using Helm
 	if hasDependencies {
 		cacheDir, err := os.MkdirTemp("", "chartscan")
@@ -234,10 +303,9 @@ func handleDependencies(chartPath string) (bool, []string) {
 		if err := dependencyCmd.Run(); err != nil {
 			return false, []string{fmt.Sprintf("Error updating dependencies: %v", err)}
 		}
-
-		// Cleanup fetched dependencies
-		cleanupDependencies(chartPath)
 	}
+
+	// Return success and no errors
 	return true, nil
 }
 
