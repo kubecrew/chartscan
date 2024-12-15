@@ -52,6 +52,10 @@ Ensure the following dependencies are installed:
 
 ## Usage
 
+### Demo
+
+![demo](demo/chartscan.gif)
+
 ### Commands
 
 #### Scan Command
