@@ -1,0 +1,9 @@
+apiVersion: test.example.com
+kind: Test
+metadata:
+  name: valid
+  labels:
+    app: valid
+    hello: {{ .Values.hello }}
+spec:
+  replicas: {{ .Values.replicas }}

@@ -396,31 +396,55 @@ func lintChart(chartPath string, valuesFiles []string) []string {
 	return nil
 }
 
-// ParseTemplates parses all template files in the chart's templates directory and
-// returns a slice of value references and a slice of errors encountered.
 func parseTemplates(chartPath string) ([]models.ValueReference, []string) {
-	// Find all YAML files in the chart's templates directory
-	templateFiles, err := filepath.Glob(filepath.Join(chartPath, "templates", "*.yaml"))
-	if err != nil {
-		// Return an error if there is an issue finding the template files
-		return nil, []string{fmt.Sprintf("Error finding template files: %v", err)}
-	}
-
 	// Initialize slices to store value references and errors
 	var valueReferences []models.ValueReference
 	var errors []string
 
-	// Iterate over each template file
-	for _, templateFile := range templateFiles {
-		// Parse the template file and extract value references
-		refs, err := TemplateParser(templateFile)
+	// Define the path to the templates directory
+	templatesDir := filepath.Join(chartPath, "templates")
+
+	// Check if the templates directory exists in the root of the chartPath
+	info, err := os.Stat(templatesDir)
+	if os.IsNotExist(err) {
+		// If the templates directory does not exist, return empty results
+		return valueReferences, errors
+	}
+	if err != nil {
+		// If there is an error accessing the templates directory, return the error
+		errors = append(errors, fmt.Sprintf("Error accessing templates directory: %v", err))
+		return valueReferences, errors
+	}
+
+	// Ensure the path is a directory
+	if !info.IsDir() {
+		errors = append(errors, fmt.Sprintf("Expected templates to be a directory but found a file: %s", templatesDir))
+		return valueReferences, errors
+	}
+
+	// Walk through all files in the templates directory
+	err = filepath.Walk(templatesDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			// Append an error message to the errors slice if there is an issue parsing the template file
-			errors = append(errors, fmt.Sprintf("Error parsing template file %s: %v", templateFile, err))
-		} else {
-			// Append the value references to the valueReferences slice
-			valueReferences = append(valueReferences, refs...)
+			// Append an error if there is an issue accessing a file
+			errors = append(errors, fmt.Sprintf("Error accessing file %s: %v", path, err))
+			return nil
 		}
+
+		// Process only YAML files
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".yaml") {
+			// Parse the template file and extract value references
+			refs, err := TemplateParser(path)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Error parsing template file %s: %v", path, err))
+			} else {
+				valueReferences = append(valueReferences, refs...)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		errors = append(errors, fmt.Sprintf("Error walking templates directory: %v", err))
 	}
 
 	// Return the value references and errors
