@@ -314,13 +314,18 @@ func listConfiguredEnvironments(configFile string) error {
 
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Environment", "Values Files"})
+	table.SetRowLine(true)
 
 	for env, envConfig := range config.Environments {
-		valuesFiles := ""
+		valuesTableString := &strings.Builder{}
+		valuesTable := tablewriter.NewWriter(valuesTableString)
+		valuesTable.SetBorder(false)
 		for _, file := range envConfig.ValuesFiles {
-			valuesFiles += fmt.Sprintf("• %s\n\n", file)
+			valuesTable.Append([]string{file})
 		}
-		table.Append([]string{env, valuesFiles})
+		valuesTable.Render()
+
+		table.Append([]string{env, valuesTableString.String()})
 	}
 
 	table.Render()
