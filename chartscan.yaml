@@ -2,3 +2,7 @@ chartPath: "./mock/charts"
 format: "json"
 valuesFiles:
   - mock/values.yaml
+environments:
+  test:
+    valuesFiles:
+      - mock/values.yaml

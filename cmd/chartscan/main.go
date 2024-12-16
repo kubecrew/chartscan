@@ -15,6 +15,7 @@ import (
 	"github.com/Jaydee94/chartscan/internal/models"
 	"github.com/Jaydee94/chartscan/internal/renderer"
 	"github.com/briandowns/spinner"
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -32,12 +33,45 @@ func main() {
 	var format string
 	// outputFile for specifying the output file for the rendered chart
 	var outputFile string
+	// environment stores the environment name
+	var environment string
+	// listEnvironments flag to list all configured environments
+	var listEnvironments bool
 
 	// Root command
 	rootCmd := &cobra.Command{
 		Use:   "chartscan",
 		Short: "ChartScan is a tool to scan Helm charts",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if configFile == "" {
+				var err error
+				configFile, err = loadConfigFileFromGitRepo()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
+					os.Exit(1)
+				}
+			}
+		},
+		Run: func(cmd *cobra.Command, args []string) {
+			if listEnvironments {
+				if err := listConfiguredEnvironments(configFile); err != nil {
+					fmt.Fprintf(os.Stderr, "Error listing environments: %v\n", err)
+					os.Exit(1)
+				}
+				os.Exit(0)
+			}
+
+			// If no arguments are provided, display the help page
+			if len(args) == 0 {
+				cmd.Help()
+				os.Exit(0)
+			}
+		},
 	}
+
+	// Add flags to the root command
+	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
+	rootCmd.PersistentFlags().BoolVarP(&listEnvironments, "list-environments", "l", false, "List all configured environments if a chartscan.yaml is found or explicitly passed")
 
 	// Scan subcommand
 	scanCmd := &cobra.Command{
@@ -52,7 +86,7 @@ func main() {
 				os.Exit(1)
 			}
 			// Load the configuration from the configuration file and/or CLI arguments
-			config, err := loadConfig(configFile, valuesFiles, format, args)
+			config, err := loadConfig(configFile, valuesFiles, format, args, environment)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				os.Exit(1)
@@ -73,7 +107,7 @@ func main() {
 			}
 
 			// Process the Helm charts
-			results, invalidCharts := processCharts(chartDirs, config)
+			results, invalidCharts := processCharts(chartDirs, *config) // Dereference the pointer
 
 			duration := time.Since(startTime)
 
@@ -118,6 +152,7 @@ func main() {
 	scanCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
 	scanCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
 	scanCmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
+	scanCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
 
 	// template subcommand
 	templateCmd := &cobra.Command{
@@ -132,7 +167,7 @@ func main() {
 				os.Exit(1)
 			}
 			// Load the configuration from the configuration file and/or CLI arguments
-			config, err := loadConfig(configFile, valuesFiles, format, args)
+			config, err := loadConfig(configFile, valuesFiles, format, args, environment)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				os.Exit(1)
@@ -165,7 +200,8 @@ func main() {
 	// Add flags to the template subcommand
 	templateCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
 	templateCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file to write the rendered chart (optional)")
-	templateCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file") // Ensure this flag is added here
+	templateCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
+	templateCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
 
 	// Version subcommand
 	versionCmd := &cobra.Command{
@@ -243,6 +279,54 @@ func loadConfigFileFromGitRepo() (string, error) {
 	return "", nil
 }
 
+func listConfiguredEnvironments(configFile string) error {
+	config := &models.Config{}
+	if configFile != "" {
+		data, err := os.ReadFile(configFile)
+		if err != nil {
+			return err
+		}
+		if err := yaml.Unmarshal(data, config); err != nil {
+			return err
+		}
+	} else {
+		// Try to load the config file from the git repo
+		var err error
+		configFile, err = loadConfigFileFromGitRepo()
+		if err != nil {
+			return err
+		}
+		if configFile != "" {
+			data, err := os.ReadFile(configFile)
+			if err != nil {
+				return err
+			}
+			if err := yaml.Unmarshal(data, config); err != nil {
+				return err
+			}
+		}
+	}
+
+	if config.Environments == nil {
+		fmt.Println("No environments configured.")
+		return nil
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Environment", "Values Files"})
+
+	for env, envConfig := range config.Environments {
+		valuesFiles := ""
+		for _, file := range envConfig.ValuesFiles {
+			valuesFiles += fmt.Sprintf("• %s\n\n", file)
+		}
+		table.Append([]string{env, valuesFiles})
+	}
+
+	table.Render()
+	return nil
+}
+
 // printJUnitTestReport generates a JUnit-compatible unit test report
 // from the given results.
 //
@@ -292,59 +376,35 @@ func printJUnitTestReport(results []models.Result) error {
 }
 
 // loadConfig dynamically loads the configuration from a file and/or CLI arguments
-func loadConfig(configFile string, valuesFiles []string, format string, args []string) (models.Config, error) {
-	config := models.Config{}
-
-	// Load from configuration file if specified
+func loadConfig(configFile string, valuesFiles []string, format string, args []string, environment string) (*models.Config, error) {
+	// Load the configuration file
+	config := &models.Config{}
 	if configFile != "" {
-		// Get the directory of the config file
-		configDir := filepath.Dir(configFile)
-
 		data, err := os.ReadFile(configFile)
 		if err != nil {
-			return config, fmt.Errorf("error reading config file: %v", err)
+			return nil, err
 		}
-
-		// Unmarshal the configuration from the file
-		if err := yaml.Unmarshal(data, &config); err != nil {
-			return config, fmt.Errorf("error decoding config file: %v", err)
-		}
-
-		// Resolve relative paths for chart path and values files
-		config.ChartPath, err = resolveRelativePath(configDir, config.ChartPath)
-		if err != nil {
-			return config, fmt.Errorf("error resolving chartPath: %v", err)
-		}
-
-		// Resolve relative values files
-		for i, valuesFile := range config.ValuesFiles {
-			config.ValuesFiles[i], err = resolveRelativePath(configDir, valuesFile)
-			if err != nil {
-				return config, fmt.Errorf("error resolving valuesFile %s: %v", valuesFile, err)
-			}
+		if err := yaml.Unmarshal(data, config); err != nil {
+			return nil, err
 		}
 	}
 
-	// Override with CLI arguments and defaults
-	if len(args) > 0 {
-		// Use the first command-line argument as the chart path
-		config.ChartPath = args[0]
-	} else if config.ChartPath == "" {
-		// Default chart path
-		config.ChartPath = "./charts"
+	// Override values files if an environment is specified
+	if environment != "" {
+		envConfig, exists := config.Environments[environment]
+		if exists {
+			config.ValuesFiles = envConfig.ValuesFiles
+		} else {
+			return nil, fmt.Errorf("environment %s not found in chartscan.yaml", environment)
+		}
 	}
 
+	// Override values files and format from CLI arguments
 	if len(valuesFiles) > 0 {
-		// Use the values files specified on the command line
 		config.ValuesFiles = valuesFiles
 	}
-
 	if format != "" {
-		// Use the output format specified on the command line
 		config.Format = format
-	} else if config.Format == "" {
-		// Default output format
-		config.Format = "pretty"
 	}
 
 	return config, nil
