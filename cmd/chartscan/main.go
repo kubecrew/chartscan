@@ -380,12 +380,18 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 	// Load the configuration file
 	config := &models.Config{}
 	if configFile != "" {
+		configDir := filepath.Dir(configFile)
 		data, err := os.ReadFile(configFile)
 		if err != nil {
 			return nil, err
 		}
 		if err := yaml.Unmarshal(data, config); err != nil {
 			return nil, err
+		}
+		// Resolve relative paths for chart path and values files
+		config.ChartPath, err = resolveRelativePath(configDir, config.ChartPath)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving chartPath: %v", err)
 		}
 	}
 
@@ -407,6 +413,17 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 		config.Format = format
 	}
 
+	if configFile != "" {
+		configDir := filepath.Dir(configFile)
+		var err error
+		// Resolve relative values files
+		for i, valuesFile := range config.ValuesFiles {
+			config.ValuesFiles[i], err = resolveRelativePath(configDir, valuesFile)
+			if err != nil {
+				return config, fmt.Errorf("error resolving valuesFile %s: %v", valuesFile, err)
+			}
+		}
+	}
 	return config, nil
 }
 
