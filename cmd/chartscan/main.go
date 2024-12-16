@@ -42,7 +42,7 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "chartscan",
 		Short: "ChartScan is a tool to scan Helm charts",
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		PreRun: func(cmd *cobra.Command, args []string) {
 			if configFile == "" {
 				var err error
 				configFile, err = loadConfigFileFromGitRepo()
@@ -315,17 +315,14 @@ func listConfiguredEnvironments(configFile string) error {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Environment", "Values Files"})
 	table.SetRowLine(true)
+	table.SetAutoWrapText(false)
 
 	for env, envConfig := range config.Environments {
-		valuesTableString := &strings.Builder{}
-		valuesTable := tablewriter.NewWriter(valuesTableString)
-		valuesTable.SetBorder(false)
-		for _, file := range envConfig.ValuesFiles {
-			valuesTable.Append([]string{file})
+		valuesFiles := ""
+		if len(envConfig.ValuesFiles) > 0 {
+			valuesFiles = "• " + strings.Join(envConfig.ValuesFiles, "\n• ")
 		}
-		valuesTable.Render()
-
-		table.Append([]string{env, valuesTableString.String()})
+		table.Append([]string{env, valuesFiles})
 	}
 
 	table.Render()
