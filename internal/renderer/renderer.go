@@ -599,11 +599,14 @@ func PrintResultsPretty(results []models.Result, duration time.Duration) {
 			validCharts++
 		}
 
+		// Sanitize error messages to avoid breaking the table rendering
+		sanitizedErrors := sanitizeErrors(result.Errors)
+
 		// Create the row for the table
 		row := []string{
-			chartName,                         // Chart name
-			successStr,                        // Success status
-			strings.Join(result.Errors, "\n"), // Error details
+			chartName,                           // Chart name
+			successStr,                          // Success status
+			strings.Join(sanitizedErrors, "\n"), // Error details
 		}
 		rows = append(rows, row)
 	}
@@ -618,6 +621,17 @@ func PrintResultsPretty(results []models.Result, duration time.Duration) {
 
 	// Print the summary
 	fmt.Printf("\nSummary: %d valid charts, %d invalid charts scanned in %v\n", validCharts, invalidCharts, duration)
+}
+
+// sanitizeErrors replaces or escapes problematic characters in error messages.
+func sanitizeErrors(errors []string) []string {
+	var sanitized []string
+	for _, err := range errors {
+		// Replace pipe symbols with a safe alternative
+		sanitizedErr := strings.ReplaceAll(err, "|", "¦")
+		sanitized = append(sanitized, sanitizedErr)
+	}
+	return sanitized
 }
 
 // getChartName reads the Chart.yaml file from the given chart path and returns the chart name.
