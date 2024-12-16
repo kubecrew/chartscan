@@ -17,10 +17,15 @@ type ValueReference struct {
 	FullText string `json:"FullText"`
 }
 
+type EnvironmentConfig struct {
+	ValuesFiles []string `yaml:"valuesFiles"`
+}
+
 type Config struct {
-	ChartPath   string   `yaml:"chartPath"`   // Base path to search for Helm charts
-	ValuesFiles []string `yaml:"valuesFiles"` // List of values files to use during rendering
-	Format      string   `yaml:"format"`      // Output format: pretty, json, yaml, junit
+	ChartPath    string                       `yaml:"chartPath"`
+	ValuesFiles  []string                     `yaml:"valuesFiles"`
+	Format       string                       `yaml:"format"`
+	Environments map[string]EnvironmentConfig `yaml:"environments"`
 }
 
 // TestSuite represents a JUnit-style test suite for test reports

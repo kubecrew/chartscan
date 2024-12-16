@@ -5,7 +5,6 @@
 ![License](https://img.shields.io/github/license/Jaydee94/chartscan.svg)
 ![Stars](https://img.shields.io/github/stars/Jaydee94/chartscan.svg)
 
-
 **ChartScan** is a CLI tool for scanning and analyzing Helm charts. It provides insights into Helm chart configurations, values, and rendering issues, allowing developers to efficiently debug and validate Helm charts before deployment.
 
 <img src="logo/chartscan_icon.png" alt="drawing" width="300"/>
@@ -71,6 +70,7 @@ chartscan scan [chart-path]
 - `-f, --values`: Specify values files to use for rendering.
 - `-o, --format`: Set the output format (pretty, json, yaml, junit). Default is `pretty`.
 - `-c, --config`: Provide a configuration file (YAML format) to override CLI flags.
+- `-e, --environment`: (Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.
 
 #### Template Command
 
@@ -85,6 +85,7 @@ chartscan template [chart-path]
 - `-f, --values`: Specify values files to use for rendering.
 - `-o, --format`: Specify an output file to write the rendered chart (optional).
 - `-c, --config`: Provide a configuration file (YAML format) to override CLI flags.
+- `-e, --environment`: (Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.
 
 #### Version Command
 
@@ -96,22 +97,36 @@ chartscan version
 
 ### Examples
 
-#### Scan a Chart Directory with Values Files:
+#### Scan a Chart Directory with Values Files
+
 ```bash
 chartscan scan ./charts -f values.yaml -o json
 ```
 
-#### Use a Config File:
+#### Use a Config File
+
 ```bash
 chartscan scan -c config.yaml
 ```
 
-#### Example Config File:
+#### Example Config File
+
 ```yaml
 chartPath: ./charts
 valuesFiles:
   - values.yaml
 format: yaml
+environments:
+  test:
+    valuesFiles:
+      - values-test.yaml
+      - values-2-test.yaml
+  staging:
+    valuesFiles:
+      - values-staging.yaml
+  production:
+    valuesFiles:
+      - values-production.yaml
 ```
 
 ---
@@ -136,11 +151,13 @@ my-repo/
 ├── values.yaml
 └── README.md
 ```
+
 When you run (inside a git repo with a chartscan.yaml in the root directory):
 
 ```bash
 chartscan scan ./charts
 ```
+
 ChartScan will automatically detect and use chartscan.yaml for its configuration.
 
 ---
@@ -190,4 +207,3 @@ Contributions are welcome! Please follow these steps:
 3. Commit your changes (`git commit -m "Add feature"`).
 4. Push to the branch (`git push origin feature-name`).
 5. Open a pull request.
-
