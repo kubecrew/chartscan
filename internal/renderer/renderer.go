@@ -314,7 +314,9 @@ func isValidReleaseName(name string) bool {
 	return re.MatchString(name)
 }
 
-// Handle Helm chart dependencies
+// handleDependencies checks if a chart has dependencies and updates them using Helm if necessary.
+// It takes the path to a chart as an argument and returns a boolean indicating success or failure,
+// as well as a slice of error messages if there were any issues.
 func handleDependencies(chartPath string) (bool, []string) {
 	chartYamlPath := filepath.Join(chartPath, "Chart.yaml")
 	hasDependencies, err := checkForDependencies(chartYamlPath)
@@ -407,6 +409,12 @@ func lintChart(chartPath string, valuesFiles []string) []string {
 	return nil
 }
 
+// parseTemplates parses Helm chart templates and extracts value references.
+//
+// The function takes a Helm chart path, parses all YAML files in the 'templates'
+// directory, and returns a slice of models.ValueReference and a slice of error
+// messages. If there is an error accessing the templates directory or parsing a
+// template file, the error message is appended to the error slice.
 func parseTemplates(chartPath string) ([]models.ValueReference, []string) {
 	// Initialize slices to store value references and errors
 	var valueReferences []models.ValueReference
@@ -566,6 +574,9 @@ func colorSymbol(s string, success bool) string {
 	}
 }
 
+// colorize takes a string and a color string and returns the string with the specified color.
+// The color string can be "green" or "red". If the color string is not recognized, the function
+// returns the original string.
 func colorize(s string, color string) string {
 	switch color {
 	case "green":

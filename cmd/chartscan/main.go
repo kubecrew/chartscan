@@ -260,6 +260,13 @@ func loadConfigFileFromGitRepo() (string, error) {
 	return "", nil
 }
 
+// listConfiguredEnvironments reads the configuration from the specified configFile
+// or attempts to locate a config file in the root of the Git repository.
+// It lists all configured environments along with their associated values files
+// in a tabular format. If no environments are configured, it outputs a message
+// indicating so. Returns an error if there is a problem reading or unmarshalling
+// the config file.
+
 func listConfiguredEnvironments(configFile string) error {
 	config := &models.Config{}
 	if configFile != "" {

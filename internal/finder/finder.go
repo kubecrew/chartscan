@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 )
 
-// FindHelmChartDirs finds all Helm chart directories recursively in the given root directory.
+// FindHelmChartDirs finds all directories in the file tree rooted at root that contain a Chart.yaml file.
+// It returns a slice of strings that stores the paths to the Helm chart directories and an error if an error occurs while walking the tree.
+// If the root is empty, it returns an empty slice and a nil error.
 func FindHelmChartDirs(root string) ([]string, error) {
 	// chartDirs is a slice of strings that stores the paths to the Helm chart directories.
 	var chartDirs []string
