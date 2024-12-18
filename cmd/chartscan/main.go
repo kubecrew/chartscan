@@ -37,6 +37,8 @@ func main() {
 	var environment string
 	// listEnvironments flag to list all configured environments
 	var listEnvironments bool
+	// failOnError flag to control exit behavior on invalid charts
+	var failOnError bool
 
 	// Root command
 	rootCmd := &cobra.Command{
@@ -61,7 +63,6 @@ func main() {
 				os.Exit(0)
 			}
 
-			// If no arguments are provided, display the help page
 			if len(args) == 0 {
 				cmd.Help()
 				os.Exit(0)
@@ -79,13 +80,12 @@ func main() {
 		Short: "Scan Helm charts for potential issues",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			// Automatically load the config file from the git repo if possible
 			configFile, err := loadConfigFileFromGitRepo()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
 				os.Exit(1)
 			}
-			// Load the configuration from the configuration file and/or CLI arguments
+
 			config, err := loadConfig(configFile, valuesFiles, format, args, environment)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
@@ -93,38 +93,28 @@ func main() {
 			}
 
 			startTime := time.Now()
-
 			var chartDirs []string
-			// Iterate over all chart paths passed in args
 			for _, chartPath := range args {
-				// Find the Helm charts to scan in each path
 				dirs, err := finder.FindHelmChartDirs(chartPath)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error finding Helm charts in %s: %v\n", chartPath, err)
 					os.Exit(1)
 				}
-				chartDirs = append(chartDirs, dirs...) // Combine the directories found
+				chartDirs = append(chartDirs, dirs...)
 			}
 
-			// Process the Helm charts
-			results, invalidCharts := processCharts(chartDirs, *config) // Dereference the pointer
-
+			results, invalidCharts := processCharts(chartDirs, *config)
 			duration := time.Since(startTime)
 
 			var output []byte
-			// Output the results in the desired format
 			switch config.Format {
 			case "pretty":
-				// Print the results in a pretty format
 				renderer.PrintResultsPretty(results, duration)
 			case "json":
-				// Marshal the results to JSON
 				output, err = json.MarshalIndent(results, "", "  ")
 			case "yaml":
-				// Marshal the results to YAML
 				output, err = yaml.Marshal(results)
 			case "junit":
-				// Print JUnit test report
 				err = printJUnitTestReport(results)
 			default:
 				fmt.Fprintf(os.Stderr, "Unknown output format: %s\n", config.Format)
@@ -137,12 +127,11 @@ func main() {
 			}
 
 			if output != nil {
-				// Print the output
 				fmt.Println(string(output))
 			}
 
-			// Exit with a non-zero status if there are invalid charts
-			if invalidCharts > 0 {
+			// Exit with error code 1 only if --fail-on-error is set
+			if failOnError && invalidCharts > 0 {
 				os.Exit(1)
 			}
 		},
@@ -153,46 +142,38 @@ func main() {
 	scanCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
 	scanCmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
 	scanCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
+	scanCmd.Flags().BoolVarP(&failOnError, "fail-on-error", "", false, "Exit with error code 1 if there are invalid charts")
 
-	// template subcommand
+	// Template subcommand
 	templateCmd := &cobra.Command{
 		Use:   "template [chart-path]...",
 		Short: "Render Helm charts using helm template",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			// Automatically load the config file from the git repo if possible
 			configFile, err := loadConfigFileFromGitRepo()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
 				os.Exit(1)
 			}
-			// Load the configuration from the configuration file and/or CLI arguments
 			config, err := loadConfig(configFile, valuesFiles, format, args, environment)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				os.Exit(1)
 			}
 
-			// Create a spinner to indicate progress
 			s := spinner.New(spinner.CharSets[4], 100*time.Millisecond)
 			s.Start()
 			defer s.Stop()
 
-			chartPaths := args
-			// Call TemplateHelmChart for each chart provided
-			for _, chartPath := range chartPaths {
-				// Update the spinner with the chart being rendered
-				s.Suffix = fmt.Sprintf(" Templating: %s", chartPaths)
-
+			for _, chartPath := range args {
+				s.Suffix = fmt.Sprintf(" Templating: %s", chartPath)
 				err := renderer.TemplateHelmChart(chartPath, config.ValuesFiles, outputFile)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error rendering chart %s: %v\n", chartPath, err)
-					s.Stop() // Stop the spinner on error
+					s.Stop()
 					os.Exit(1)
 				}
 			}
-
-			// Stop the spinner after all charts are processed
 			s.Stop()
 		},
 	}
