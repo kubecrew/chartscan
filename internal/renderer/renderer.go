@@ -613,11 +613,16 @@ func PrintResultsPretty(results []models.Result, duration time.Duration) {
 		// Sanitize error messages to avoid breaking the table rendering
 		sanitizedErrors := sanitizeErrors(result.Errors)
 
+		errorDetails := ""
+		if len(sanitizedErrors) > 0 {
+			errorDetails = "• " + strings.Join(sanitizedErrors, "\n• ")
+		}
+
 		// Create the row for the table
 		row := []string{
-			chartName,  // Chart name
-			successStr, // Success status
-			"• " + strings.Join(sanitizedErrors, "\n• "), // Error details
+			chartName,
+			successStr,
+			errorDetails,
 		}
 		rows = append(rows, row)
 	}
