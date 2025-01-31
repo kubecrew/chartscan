@@ -188,10 +188,18 @@ func ScanHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[
 		return false, errors, nil, nil
 	}
 
-	// Check values files existence
-	missingFilesErrors := checkValuesFilesExistence(valuesFiles)
-	if len(missingFilesErrors) > 0 {
-		return false, missingFilesErrors, nil, nil
+	// Check values files existence (only if valuesFiles is provided)
+	var missingFilesErrors []string
+	if len(valuesFiles) > 0 {
+		missingFilesErrors = checkValuesFilesExistence(valuesFiles)
+		if len(missingFilesErrors) > 0 {
+			return false, missingFilesErrors, nil, nil
+		}
+	}
+
+	// Ensure valuesFiles is always a valid slice
+	if valuesFiles == nil {
+		valuesFiles = []string{}
 	}
 
 	// Lint the chart
@@ -204,6 +212,11 @@ func ScanHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[
 	// Load values and merge additional values files
 	values, loadErrors := loadAndMergeValues(chartPath, valuesFiles)
 	lintErrors = append(lintErrors, loadErrors...)
+
+	// Ensure values is never nil
+	if values == nil {
+		values = make(map[string]interface{})
+	}
 
 	// Check for undefined values
 	undefinedValues := CheckValueReferences(valueReferences, values)
@@ -470,44 +483,46 @@ func parseTemplates(chartPath string) ([]models.ValueReference, []string) {
 	return valueReferences, errors
 }
 
-// Load and merge values files
-//
-// This function loads the chart's values.yaml file and a list of additional values files,
-// and merges them together into a single map of values. If there is an issue loading
-// any of the files, it returns an error.
+// loadAndMergeValues loads the chart's values.yaml file (if present) and additional values files,
+// merging them into a single map of values. If any errors occur while loading files, they are logged but not thrown.
 func loadAndMergeValues(chartPath string, valuesFiles []string) (map[string]interface{}, []string) {
-	// Load the chart's values.yaml file
-	values, err := ValuesLoader(filepath.Join(chartPath, "values.yaml"))
-	if err != nil {
-		// Return an error if there is an issue loading the values.yaml file
-		return nil, []string{fmt.Sprintf("Error loading values file: %v", err)}
-	}
-
-	// Initialize the values map if it is not already set
-	if values == nil {
-		values = make(map[string]interface{})
-	}
-
-	// Initialize a slice of errors
+	// Initialize the values map
+	values := make(map[string]interface{})
 	var errors []string
+
+	// Path to the chart's values.yaml file
+	chartValuesFile := filepath.Join(chartPath, "values.yaml")
+
+	// Check if values.yaml exists before attempting to load
+	if _, err := os.Stat(chartValuesFile); err == nil {
+		// Load values.yaml
+		if chartValues, err := ValuesLoader(chartValuesFile); err != nil {
+			errors = append(errors, fmt.Sprintf("Error loading values.yaml: %v", err))
+		} else if chartValues != nil {
+			mergeMaps(values, chartValues)
+		}
+	} else if !os.IsNotExist(err) {
+		// Handle unexpected file system errors (e.g., permission issues)
+		errors = append(errors, fmt.Sprintf("Error checking values.yaml: %v", err))
+	}
 
 	// Iterate over each additional values file
 	for _, valuesFile := range valuesFiles {
-		// Skip the chart's values.yaml file if it is in the list of additional values files
-		if valuesFile != filepath.Join(chartPath, "values.yaml") {
-			// Load the additional values file
-			additionalValues, err := ValuesLoader(valuesFile)
-			if err != nil {
-				// Append an error message to the errors slice if there is an issue loading the additional values file
-				errors = append(errors, fmt.Sprintf("Error loading additional values file %s: %v", valuesFile, err))
-			} else {
-				// Merge the additional values into the main values map
-				mergeMaps(values, additionalValues)
-			}
+		// Skip the chart's values.yaml file if it's in the list
+		if valuesFile == chartValuesFile {
+			continue
+		}
+
+		// Load the additional values file
+		if additionalValues, err := ValuesLoader(valuesFile); err != nil {
+			errors = append(errors, fmt.Sprintf("Error loading additional values file %s: %v", valuesFile, err))
+		} else if additionalValues != nil {
+			mergeMaps(values, additionalValues)
 		}
 	}
 
 	// Return the merged values map and any errors that occurred
+	// Even if no values were found, an empty map is returned without error
 	return values, errors
 }
 

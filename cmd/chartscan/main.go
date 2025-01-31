@@ -139,7 +139,7 @@ func main() {
 
 	// Add flags to the scan subcommand
 	scanCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
-	scanCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
+	scanCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", []string{}, "Specify values files for rendering (optional)")
 	scanCmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
 	scanCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
 	scanCmd.Flags().BoolVarP(&failOnError, "fail-on-error", "", false, "Exit with error code 1 if there are invalid charts")
@@ -387,9 +387,12 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 
 	// Override values files if an environment is specified
 	if environment != "" {
-		envConfig, exists := config.Environments[environment]
-		if exists {
-			config.ValuesFiles = envConfig.ValuesFiles
+		if envConfig, exists := config.Environments[environment]; exists {
+			if len(envConfig.ValuesFiles) > 0 {
+				config.ValuesFiles = envConfig.ValuesFiles
+			} else {
+				config.ValuesFiles = nil // Ensure it's explicitly nil if empty
+			}
 		} else {
 			return nil, fmt.Errorf("environment %s not found in chartscan.yaml", environment)
 		}
@@ -459,8 +462,7 @@ func processCharts(chartDirs []string, config models.Config) ([]models.Result, i
 			mutex.Lock()
 			defer mutex.Unlock()
 
-			// Increment the invalid chart count if the chart is invalid
-			if !success {
+			if !success && len(errors) > 0 { // Only mark as invalid if actual errors exist
 				invalidCharts++
 			}
 
