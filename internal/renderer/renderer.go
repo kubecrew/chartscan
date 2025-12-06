@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"strconv"
+
 	"github.com/fatih/color"
 	"github.com/mattn/go-runewidth"
 	"github.com/olekukonko/tablewriter"
@@ -175,9 +177,9 @@ func mergeMaps(target, source map[string]interface{}) {
 // Refactored RenderHelmChart function and its components
 
 // ScanHelmChart renders a Helm chart and checks for undefined values in the chart and values files.
-// The function takes a chart path and a slice of values files as input and returns a boolean indicating
+// The function takes a chart path, a slice of values files, and a slice of set values as input and returns a boolean indicating
 // success or failure, a slice of errors encountered, a map of values and a slice of undefined values.
-func ScanHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[string]interface{}, []string) {
+func ScanHelmChart(chartPath string, valuesFiles []string, setValues []string) (bool, []string, map[string]interface{}, []string) {
 	if chartPath == "" {
 		return false, []string{"Chart path is empty"}, nil, nil
 	}
@@ -203,7 +205,7 @@ func ScanHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[
 	}
 
 	// Lint the chart
-	lintErrors := lintChart(chartPath, valuesFiles)
+	lintErrors := lintChart(chartPath, valuesFiles, setValues)
 
 	// Parse templates and gather value references
 	valueReferences, templateErrors := parseTemplates(chartPath)
@@ -216,6 +218,11 @@ func ScanHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[
 	// Ensure values is never nil
 	if values == nil {
 		values = make(map[string]interface{})
+	}
+
+	// Merge set values
+	if len(setValues) > 0 {
+		mergeSetValues(values, setValues)
 	}
 
 	// Check for undefined values
@@ -234,9 +241,9 @@ func ScanHelmChart(chartPath string, valuesFiles []string) (bool, []string, map[
 }
 
 // TemplateHelmChart renders a Helm chart using the `helm template` command and outputs the results to stdout or a file.
-// It takes a chart path, release name, output file (optional), and additional values files (optional).
+// It takes a chart path, release name, output file (optional), additional values files (optional), and set values (optional).
 // It returns any error encountered during the process.
-func TemplateHelmChart(chartPath string, valuesFiles []string, outputFile string) error {
+func TemplateHelmChart(chartPath string, valuesFiles []string, setValues []string, outputFile string) error {
 	// Ensure the chartPath is not empty
 	if chartPath == "" {
 		return fmt.Errorf("chart path is empty")
@@ -278,6 +285,11 @@ func TemplateHelmChart(chartPath string, valuesFiles []string, outputFile string
 	// Add each values file to the command arguments
 	for _, valuesFile := range valuesFiles {
 		templateCmd.Args = append(templateCmd.Args, "--values", valuesFile)
+	}
+
+	// Add each set value to the command arguments
+	for _, setValue := range setValues {
+		templateCmd.Args = append(templateCmd.Args, "--set", setValue)
 	}
 
 	// Buffers to capture the standard output and error streams
@@ -394,15 +406,20 @@ func checkValuesFilesExistence(valuesFiles []string) []string {
 	return errors
 }
 
-// lintChart lints a Helm chart with the given values files.
+// lintChart lints a Helm chart with the given values files and set values.
 // It returns a slice of error messages if the linting fails.
-func lintChart(chartPath string, valuesFiles []string) []string {
+func lintChart(chartPath string, valuesFiles []string, setValues []string) []string {
 	// Prepare the Helm lint command with strict mode
 	lintCmd := exec.Command("helm", "lint", "--strict", chartPath)
 
 	// Add each values file to the command arguments
 	for _, valuesFile := range valuesFiles {
 		lintCmd.Args = append(lintCmd.Args, "--values", valuesFile)
+	}
+
+	// Add each set value to the command arguments
+	for _, setValue := range setValues {
+		lintCmd.Args = append(lintCmd.Args, "--set", setValue)
 	}
 
 	// Buffers to capture the standard output and error streams
@@ -779,4 +796,42 @@ func getChartName(chartPath string) (string, error) {
 	}
 
 	return name, nil
+}
+
+// mergeSetValues parses a slice of set values strings (e.g., "key=value") and merges them into the values map.
+func mergeSetValues(values map[string]interface{}, setValues []string) {
+	for _, setValue := range setValues {
+		// Split key and value by the first equals sign
+		parts := strings.SplitN(setValue, "=", 2)
+		if len(parts) != 2 {
+			continue // Skip invalid set values
+		}
+		keyPath := parts[0]
+		valueStr := parts[1]
+
+		// Parse value type
+		var value interface{} = valueStr
+		if b, err := strconv.ParseBool(valueStr); err == nil {
+			value = b
+		} else if i, err := strconv.Atoi(valueStr); err == nil {
+			value = i
+		}
+
+		// Traverse and create nested maps
+		keys := strings.Split(keyPath, ".")
+		currentMap := values
+		for i, key := range keys {
+			// If it's the last key, set the value
+			if i == len(keys)-1 {
+				currentMap[key] = value
+				break
+			}
+
+			// If the key doesn't exist or isn't a map, create a new map
+			if _, ok := currentMap[key].(map[string]interface{}); !ok {
+				currentMap[key] = make(map[string]interface{})
+			}
+			currentMap = currentMap[key].(map[string]interface{})
+		}
+	}
 }

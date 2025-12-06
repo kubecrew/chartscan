@@ -39,6 +39,8 @@ func main() {
 	var listEnvironments bool
 	// failOnError flag to control exit behavior on invalid charts
 	var failOnError bool
+	// setValues for passing --set flags to Helm
+	var setValues []string
 
 	// Root command
 	rootCmd := &cobra.Command{
@@ -103,7 +105,7 @@ func main() {
 				chartDirs = append(chartDirs, dirs...)
 			}
 
-			results, invalidCharts := processCharts(chartDirs, *config)
+			results, invalidCharts := processCharts(chartDirs, *config, setValues)
 			duration := time.Since(startTime)
 
 			var output []byte
@@ -143,6 +145,7 @@ func main() {
 	scanCmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
 	scanCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
 	scanCmd.Flags().BoolVarP(&failOnError, "fail-on-error", "", false, "Exit with error code 1 if there are invalid charts")
+	scanCmd.Flags().StringSliceVar(&setValues, "set", []string{}, "Set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)")
 
 	// Template subcommand
 	templateCmd := &cobra.Command{
@@ -167,7 +170,7 @@ func main() {
 
 			for _, chartPath := range args {
 				s.Suffix = fmt.Sprintf(" Templating: %s", chartPath)
-				err := renderer.TemplateHelmChart(chartPath, config.ValuesFiles, outputFile)
+				err := renderer.TemplateHelmChart(chartPath, config.ValuesFiles, setValues, outputFile)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error rendering chart %s: %v\n", chartPath, err)
 					s.Stop()
@@ -183,6 +186,7 @@ func main() {
 	templateCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file to write the rendered chart (optional)")
 	templateCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
 	templateCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
+	templateCmd.Flags().StringSliceVar(&setValues, "set", []string{}, "Set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)")
 
 	// Version subcommand
 	versionCmd := &cobra.Command{
@@ -434,7 +438,7 @@ func resolveRelativePath(baseDir, relativePath string) (string, error) {
 // This function takes a list of chart directories and a configuration object, and
 // scans and processes all the charts concurrently. It returns a slice of results
 // and the number of invalid charts.
-func processCharts(chartDirs []string, config models.Config) ([]models.Result, int) {
+func processCharts(chartDirs []string, config models.Config, setValues []string) ([]models.Result, int) {
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
 
@@ -456,7 +460,7 @@ func processCharts(chartDirs []string, config models.Config) ([]models.Result, i
 			s.Suffix = fmt.Sprintf(" Scanning: %s", chartDirs)
 
 			// Start rendering the chart
-			success, errors, values, undefinedValues := renderer.ScanHelmChart(chartDir, config.ValuesFiles)
+			success, errors, values, undefinedValues := renderer.ScanHelmChart(chartDir, config.ValuesFiles, setValues)
 
 			// Protect shared variables with a mutex
 			mutex.Lock()
