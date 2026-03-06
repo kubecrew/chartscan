@@ -16,33 +16,17 @@ import (
 	"github.com/Jaydee94/chartscan/internal/renderer"
 	"github.com/briandowns/spinner"
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds the program configuration
-
 var version = "dev"
 
 func main() {
-	// configFile stores the path to the configuration file
 	var configFile string
-	// valuesFiles stores the list of values files to use during rendering
-	var valuesFiles []string
-	// format stores the desired output format
-	var format string
-	// outputFile for specifying the output file for the rendered chart
-	var outputFile string
-	// environment stores the environment name
-	var environment string
-	// listEnvironments flag to list all configured environments
 	var listEnvironments bool
-	// failOnError flag to control exit behavior on invalid charts
-	var failOnError bool
-	// setValues for passing --set flags to Helm
-	var setValues []string
 
-	// Root command
 	rootCmd := &cobra.Command{
 		Use:   "chartscan",
 		Short: "ChartScan is a tool to scan Helm charts",
@@ -64,28 +48,49 @@ func main() {
 				}
 				os.Exit(0)
 			}
-
 			if len(args) == 0 {
-				cmd.Help()
+				cmd.Help() //nolint:errcheck
 				os.Exit(0)
 			}
 		},
 	}
 
-	// Add flags to the root command
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
 	rootCmd.PersistentFlags().BoolVarP(&listEnvironments, "list-environments", "l", false, "List all configured environments if a chartscan.yaml is found or explicitly passed")
 
-	// Scan subcommand
-	scanCmd := &cobra.Command{
+	rootCmd.AddCommand(buildScanCmd())
+	rootCmd.AddCommand(buildTemplateCmd())
+	rootCmd.AddCommand(buildVersionCmd())
+
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// buildScanCmd constructs and returns the `scan` subcommand.
+func buildScanCmd() *cobra.Command {
+	var (
+		configFile  string
+		valuesFiles []string
+		format      string
+		environment string
+		failOnError bool
+		setValues   []string
+	)
+
+	cmd := &cobra.Command{
 		Use:   "scan [chart-path]",
 		Short: "Scan Helm charts for potential issues",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			configFile, err := loadConfigFileFromGitRepo()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
-				os.Exit(1)
+			if configFile == "" {
+				var err error
+				configFile, err = loadConfigFileFromGitRepo()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
+					os.Exit(1)
+				}
 			}
 
 			config, err := loadConfig(configFile, valuesFiles, format, args, environment)
@@ -127,38 +132,51 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error processing results: %v\n", err)
 				os.Exit(1)
 			}
-
 			if output != nil {
 				fmt.Println(string(output))
 			}
 
-			// Exit with error code 1 only if --fail-on-error is set
 			if failOnError && invalidCharts > 0 {
 				os.Exit(1)
 			}
 		},
 	}
 
-	// Add flags to the scan subcommand
-	scanCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
-	scanCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", []string{}, "Specify values files for rendering (optional)")
-	scanCmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
-	scanCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
-	scanCmd.Flags().BoolVarP(&failOnError, "fail-on-error", "", false, "Exit with error code 1 if there are invalid charts")
-	scanCmd.Flags().StringSliceVar(&setValues, "set", []string{}, "Set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)")
+	cmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
+	cmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", []string{}, "Specify values files for rendering (optional)")
+	cmd.Flags().StringVarP(&format, "output-format", "o", "pretty", "Output format (pretty, json, yaml, junit)")
+	cmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production).")
+	cmd.Flags().BoolVar(&failOnError, "fail-on-error", false, "Exit with error code 1 if there are invalid charts")
+	cmd.Flags().StringSliceVar(&setValues, "set", []string{}, "Set values on the command line (key1=val1,key2=val2)")
 
-	// Template subcommand
-	templateCmd := &cobra.Command{
+	return cmd
+}
+
+// buildTemplateCmd constructs and returns the `template` subcommand.
+func buildTemplateCmd() *cobra.Command {
+	var (
+		configFile  string
+		valuesFiles []string
+		outputFile  string
+		environment string
+		setValues   []string
+	)
+
+	cmd := &cobra.Command{
 		Use:   "template [chart-path]...",
 		Short: "Render Helm charts using helm template",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			configFile, err := loadConfigFileFromGitRepo()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
-				os.Exit(1)
+			if configFile == "" {
+				var err error
+				configFile, err = loadConfigFileFromGitRepo()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error checking Git repo: %v\n", err)
+					os.Exit(1)
+				}
 			}
-			config, err := loadConfig(configFile, valuesFiles, format, args, environment)
+
+			config, err := loadConfig(configFile, valuesFiles, "", args, environment)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				os.Exit(1)
@@ -170,92 +188,77 @@ func main() {
 
 			for _, chartPath := range args {
 				s.Suffix = fmt.Sprintf(" Templating: %s", chartPath)
-				err := renderer.TemplateHelmChart(chartPath, config.ValuesFiles, setValues, outputFile)
-				if err != nil {
+				if err := renderer.TemplateHelmChart(chartPath, config.ValuesFiles, setValues, outputFile); err != nil {
 					fmt.Fprintf(os.Stderr, "Error rendering chart %s: %v\n", chartPath, err)
 					s.Stop()
 					os.Exit(1)
 				}
 			}
-			s.Stop()
 		},
 	}
 
-	// Add flags to the template subcommand
-	templateCmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
-	templateCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file to write the rendered chart (optional)")
-	templateCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
-	templateCmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use (e.g., test, staging, production). This will load preconfigured values files for the specified environment in chartscan.yaml.")
-	templateCmd.Flags().StringSliceVar(&setValues, "set", []string{}, "Set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)")
+	cmd.Flags().StringSliceVarP(&valuesFiles, "values", "f", nil, "Specify values files for rendering")
+	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file to write the rendered chart (optional)")
+	cmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
+	cmd.Flags().StringVarP(&environment, "environment", "e", "", "(Optional) Specify the environment to use.")
+	cmd.Flags().StringSliceVar(&setValues, "set", []string{}, "Set values on the command line (key1=val1,key2=val2)")
 
-	// Version subcommand
-	versionCmd := &cobra.Command{
+	return cmd
+}
+
+// buildVersionCmd constructs and returns the `version` subcommand.
+func buildVersionCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the version of ChartScan",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("ChartScan version %s\n", version)
 		},
 	}
-
-	// Add subcommands to the root command
-	rootCmd.AddCommand(scanCmd)
-	rootCmd.AddCommand(templateCmd)
-	rootCmd.AddCommand(versionCmd)
-
-	// Execute the root command
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
 }
 
-// checkIfInGitRepo checks if the current working directory is inside a Git repository
+// checkIfInGitRepo returns true if the current directory is inside a Git
+// repository, along with the repository root path.
 func checkIfInGitRepo() (bool, string, error) {
-	// Run `git rev-parse --is-inside-work-tree` to check if we're inside a git repo
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	output, err := cmd.Output()
 	if err != nil {
 		return false, "", err
 	}
-	// If the output is "true", we're in a git repository
-	if strings.TrimSpace(string(output)) == "true" {
-		// Run `git rev-parse --show-toplevel` to get the root directory of the git repo
-		cmd = exec.Command("git", "rev-parse", "--show-toplevel")
-		rootDirOutput, err := cmd.Output()
-		if err != nil {
-			return false, "", err
-		}
-		rootDir := strings.TrimSpace(string(rootDirOutput))
-		return true, rootDir, nil
+
+	if strings.TrimSpace(string(output)) != "true" {
+		return false, "", nil
 	}
-	return false, "", nil
+
+	cmd = exec.Command("git", "rev-parse", "--show-toplevel")
+	rootDirOutput, err := cmd.Output()
+	if err != nil {
+		return false, "", err
+	}
+
+	return true, strings.TrimSpace(string(rootDirOutput)), nil
 }
 
-// findConfigFileInGitRepo checks if the `chartscan.yaml` file exists in the root of the Git repo
+// findConfigFileInGitRepo returns the path to chartscan.yaml in the repo root,
+// or an empty string if the file does not exist.
 func findConfigFileInGitRepo(rootDir string) string {
-	// Look for the chartscan.yaml file in the root of the repo
 	configFilePath := filepath.Join(rootDir, "chartscan.yaml")
 	if _, err := os.Stat(configFilePath); err == nil {
-		// If the file exists, return its path
 		return configFilePath
 	}
 	return ""
 }
 
-// loadConfigFileFromGitRepo checks if we are in a Git repository and if
-// the chartscan.yaml file exists in the root of the Git repo
+// loadConfigFileFromGitRepo checks whether we are inside a Git repository and
+// returns the path to chartscan.yaml in the repo root, if present.
 func loadConfigFileFromGitRepo() (string, error) {
-	// Check if we are in a Git repository
 	isInRepo, rootDir, err := checkIfInGitRepo()
 	if err != nil {
 		return "", err
 	}
 
 	if isInRepo {
-		// If we're inside a Git repo, look for the chartscan.yaml in the repo root
-		configFile := findConfigFileInGitRepo(rootDir)
-		if configFile != "" {
-			// Notify that the config file was found
+		if configFile := findConfigFileInGitRepo(rootDir); configFile != "" {
 			fmt.Printf("Using config file from project root: %s\n", configFile)
 			return configFile, nil
 		}
@@ -264,39 +267,12 @@ func loadConfigFileFromGitRepo() (string, error) {
 	return "", nil
 }
 
-// listConfiguredEnvironments reads the configuration from the specified configFile
-// or attempts to locate a config file in the root of the Git repository.
-// It lists all configured environments along with their associated values files
-// in a tabular format. If no environments are configured, it outputs a message
-// indicating so. Returns an error if there is a problem reading or unmarshalling
-// the config file.
-
+// listConfiguredEnvironments prints all environments defined in the config file
+// as a formatted table.
 func listConfiguredEnvironments(configFile string) error {
-	config := &models.Config{}
-	if configFile != "" {
-		data, err := os.ReadFile(configFile)
-		if err != nil {
-			return err
-		}
-		if err := yaml.Unmarshal(data, config); err != nil {
-			return err
-		}
-	} else {
-		// Try to load the config file from the git repo
-		var err error
-		configFile, err = loadConfigFileFromGitRepo()
-		if err != nil {
-			return err
-		}
-		if configFile != "" {
-			data, err := os.ReadFile(configFile)
-			if err != nil {
-				return err
-			}
-			if err := yaml.Unmarshal(data, config); err != nil {
-				return err
-			}
-		}
+	config, err := loadConfigFromFile(configFile)
+	if err != nil {
+		return err
 	}
 
 	if config.Environments == nil {
@@ -304,28 +280,53 @@ func listConfiguredEnvironments(configFile string) error {
 		return nil
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Environment", "Values Files"})
-	table.SetRowLine(true)
-	table.SetAutoWrapText(false)
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithHeader([]string{"Environment", "Values Files"}),
+		tablewriter.WithRowAlignment(tw.AlignLeft),
+	)
 
 	for env, envConfig := range config.Environments {
 		valuesFiles := ""
 		if len(envConfig.ValuesFiles) > 0 {
 			valuesFiles = "• " + strings.Join(envConfig.ValuesFiles, "\n• ")
 		}
-		table.Append([]string{env, valuesFiles})
+		table.Append([]string{env, valuesFiles}) //nolint:errcheck
 	}
 
-	table.Render()
+	table.Render() //nolint:errcheck
 	return nil
 }
 
-// printJUnitTestReport generates a JUnit-compatible unit test report
-// from the given results.
-//
-// The report will contain one test case per chart, with a failure
-// if the chart did not render successfully.
+// loadConfigFromFile reads and unmarshals the YAML configuration file.
+// If configFile is empty, it attempts to discover it from the Git repo root.
+func loadConfigFromFile(configFile string) (*models.Config, error) {
+	config := &models.Config{}
+
+	if configFile == "" {
+		var err error
+		configFile, err = loadConfigFileFromGitRepo()
+		if err != nil {
+			return config, err
+		}
+	}
+
+	if configFile == "" {
+		return config, nil
+	}
+
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+	if err := yaml.Unmarshal(data, config); err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+// printJUnitTestReport generates a JUnit-compatible XML test report from results
+// and prints it to stdout.
 func printJUnitTestReport(results []models.Result) error {
 	var testCases []models.TestCase
 	failures := 0
@@ -334,7 +335,7 @@ func printJUnitTestReport(results []models.Result) error {
 		testCase := models.TestCase{
 			Name:      result.ChartPath,
 			ClassName: "ChartScan",
-			Time:      "0", // Dummy value for now; can measure rendering time if required
+			Time:      "0",
 		}
 
 		if !result.Success {
@@ -369,10 +370,10 @@ func printJUnitTestReport(results []models.Result) error {
 	return nil
 }
 
-// loadConfig dynamically loads the configuration from a file and/or CLI arguments
+// loadConfig builds a Config from the config file and CLI overrides.
 func loadConfig(configFile string, valuesFiles []string, format string, args []string, environment string) (*models.Config, error) {
-	// Load the configuration file
 	config := &models.Config{}
+
 	if configFile != "" {
 		configDir := filepath.Dir(configFile)
 		data, err := os.ReadFile(configFile)
@@ -382,27 +383,25 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 		if err := yaml.Unmarshal(data, config); err != nil {
 			return nil, err
 		}
-		// Resolve relative paths for chart path and values files
+
 		config.ChartPath, err = resolveRelativePath(configDir, config.ChartPath)
 		if err != nil {
 			return nil, fmt.Errorf("error resolving chartPath: %v", err)
 		}
 	}
 
-	// Override values files if an environment is specified
 	if environment != "" {
-		if envConfig, exists := config.Environments[environment]; exists {
-			if len(envConfig.ValuesFiles) > 0 {
-				config.ValuesFiles = envConfig.ValuesFiles
-			} else {
-				config.ValuesFiles = nil // Ensure it's explicitly nil if empty
-			}
-		} else {
+		envConfig, exists := config.Environments[environment]
+		if !exists {
 			return nil, fmt.Errorf("environment %s not found in chartscan.yaml", environment)
+		}
+		if len(envConfig.ValuesFiles) > 0 {
+			config.ValuesFiles = envConfig.ValuesFiles
+		} else {
+			config.ValuesFiles = nil
 		}
 	}
 
-	// Override values files and format from CLI arguments
 	if len(valuesFiles) > 0 {
 		config.ValuesFiles = valuesFiles
 	}
@@ -412,67 +411,55 @@ func loadConfig(configFile string, valuesFiles []string, format string, args []s
 
 	if configFile != "" {
 		configDir := filepath.Dir(configFile)
-		var err error
-		// Resolve relative values files
-		for i, valuesFile := range config.ValuesFiles {
-			config.ValuesFiles[i], err = resolveRelativePath(configDir, valuesFile)
+		for i, vf := range config.ValuesFiles {
+			resolved, err := resolveRelativePath(configDir, vf)
 			if err != nil {
-				return config, fmt.Errorf("error resolving valuesFile %s: %v", valuesFile, err)
+				return config, fmt.Errorf("error resolving valuesFile %s: %v", vf, err)
 			}
+			config.ValuesFiles[i] = resolved
 		}
 	}
+
 	return config, nil
 }
 
-// resolveRelativePath resolves a relative path based on the given base directory
+// resolveRelativePath joins relativePath with baseDir and returns the absolute path.
 func resolveRelativePath(baseDir, relativePath string) (string, error) {
-	// Resolve relative path to absolute path based on the baseDir
-	// This makes sure the paths are valid regardless of the current working directory
-	absolutePath := filepath.Join(baseDir, relativePath)
-	// Normalize the path to avoid issues with .. or redundant slashes
-	return filepath.Abs(absolutePath)
+	return filepath.Abs(filepath.Join(baseDir, relativePath))
 }
 
-// processCharts scans and processes all chart directories concurrently
-//
-// This function takes a list of chart directories and a configuration object, and
-// scans and processes all the charts concurrently. It returns a slice of results
-// and the number of invalid charts.
+// processCharts scans chart directories concurrently and returns results with
+// the total count of invalid charts.
 func processCharts(chartDirs []string, config models.Config, setValues []string) ([]models.Result, int) {
 	var wg sync.WaitGroup
-	var mutex sync.Mutex
+	var mu sync.Mutex
 
-	results := []models.Result{}
+	results := make([]models.Result, 0, len(chartDirs))
 	invalidCharts := 0
 
-	// Create a spinner to indicate progress
 	s := spinner.New(spinner.CharSets[4], 100*time.Millisecond)
 	s.Start()
 	defer s.Stop()
 
-	// Add a wait group entry for each chart to be processed
 	wg.Add(len(chartDirs))
 	for _, chartDir := range chartDirs {
 		go func(chartDir string) {
 			defer wg.Done()
 
-			// Update the spinner with the chart being scanned
-			s.Suffix = fmt.Sprintf(" Scanning: %s", chartDirs)
+			// Fix: use chartDir (individual path) not chartDirs (entire slice)
+			s.Suffix = fmt.Sprintf(" Scanning: %s", chartDir)
 
-			// Start rendering the chart
 			success, errors, values, undefinedValues := renderer.ScanHelmChart(chartDir, config.ValuesFiles, setValues)
 
-			// Protect shared variables with a mutex
-			mutex.Lock()
-			defer mutex.Unlock()
+			mu.Lock()
+			defer mu.Unlock()
 
-			if !success && len(errors) > 0 { // Only mark as invalid if actual errors exist
+			if !success && len(errors) > 0 {
 				invalidCharts++
 			}
 
-			// Append the result to the results slice
 			results = append(results, models.Result{
-				ChartPath:       chartDir, // Corrected from "Name" to "ChartPath"
+				ChartPath:       chartDir,
 				Success:         success,
 				Errors:          errors,
 				Values:          values,
@@ -481,9 +468,6 @@ func processCharts(chartDirs []string, config models.Config, setValues []string)
 		}(chartDir)
 	}
 
-	// Wait for all goroutines to finish
 	wg.Wait()
-
-	// Return the slice of results and the number of invalid charts
 	return results, invalidCharts
 }
