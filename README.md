@@ -185,7 +185,7 @@ ChartScan will automatically detect and use chartscan.yaml for its configuration
 3. Run the tool:
 
    ```bash
-   go run main.go [command] [options]
+   go run ./cmd/chartscan [command] [options]
    ```
 
 ### Testing
